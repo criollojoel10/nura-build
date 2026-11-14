@@ -1,0 +1,32 @@
+diff --git a/drivers/gpu/drm/panfrost/panfrost_job.c b/drivers/gpu/drm/panfrost/panfrost_job.c
+index a8b4827..d1416f0 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_job.c
++++ b/drivers/gpu/drm/panfrost/panfrost_job.c
+@@ -414,6 +414,12 @@ static void panfrost_job_handle_err(struct panfrost_device *pfdev,
+ 			js, exception_name,
+ 			job_read(pfdev, JS_HEAD_LO(js)),
+ 			job_read(pfdev, JS_TAIL_LO(js)));
++		/* nura-diag: por que no traduce. jc es el VA del job chain; si el
++		 * head del registro no cae en un AS mapeado, la MMU no lo traduce. */
++		dev_err(pfdev->dev, "nura-diag: mmu_features=0x%llx as=%d jc=0x%llx mmu_ptr=%px\n",
++			(unsigned long long)pfdev->features.mmu_features,
++			job->mmu ? job->mmu->as : -1,
++			(unsigned long long)job->jc, job->mmu);
+ 	}
+ 
+ 	if (js_status == DRM_PANFROST_EXCEPTION_STOPPED) {
+diff --git a/drivers/gpu/drm/panfrost/panfrost_mmu.c b/drivers/gpu/drm/panfrost/panfrost_mmu.c
+index 83fa384..4f295ed 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_mmu.c
++++ b/drivers/gpu/drm/panfrost/panfrost_mmu.c
+@@ -157,6 +157,10 @@ static void panfrost_mmu_disable(struct panfrost_device *pfdev, u32 as_nr)
+ 
+ u32 panfrost_mmu_as_get(struct panfrost_device *pfdev, struct panfrost_mmu *mmu)
+ {
++	/* nura-diag: AS_TRANSTAB nos dice si la MMU tiene tablas validas. */
++	dev_info(pfdev->dev, "nura-diag: as_get as=%d transstab=0x%x transcfg=0x%x\n",
++		 mmu->as, mmu->as >= 0 ? mmu_read(pfdev, AS_TRANSTAB_LO(mmu->as)) : 0,
++		 mmu->as >= 0 ? mmu_read(pfdev, AS_TRANSCFG_LO(mmu->as)) : 0);
+ 	int as;
+ 
+ 	spin_lock(&pfdev->as_lock);
