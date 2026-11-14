@@ -7,9 +7,9 @@ apt-get update -qq
 apt-get install -y --no-install-recommends build-essential ca-certificates \
     python3 meson ninja-build pkg-config bison flex gettext zstd xz-utils \
     libdrm-dev libwayland-dev wayland-protocols libx11-dev libxcb1-dev \
-    libxshmfence-dev libxdamage-dev libxfixes-dev xorgproto elfutils-dev \
-    libdisplay-info-dev libzstd-dev zlib1g-dev libexpat1-dev libudev-dev \
-    llvm-dev libclang-dev libclang-cpp-dev glslang-tools
+    libxshmfence-dev libxdamage-dev libxfixes-dev x11proto-dev \
+    libelf-dev libdisplay-info-dev libzstd-dev zlib1g-dev libexpat1-dev \
+    libudev-dev llvm-dev libclang-dev glslang-tools
 mkdir -p /work
 cd /work
 curl -fsSL --max-time 900 -o mesa.tar.xz https://archive.mesa3d.org/mesa-26.2.6.tar.xz
