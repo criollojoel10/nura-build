@@ -35,12 +35,11 @@ int main(void)
 {
 	const char *node = "/dev/dri/renderD128";
 	const EGLint cfg_attrs[] = {
-		EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
 		EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
 		EGL_ALPHA_SIZE, 8, EGL_NONE
 	};
-	const EGLint surf_attrs[] = { EGL_WIDTH, 64, EGL_HEIGHT, 64, EGL_NONE };
 	const EGLint ctx_attrs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
 	PFNEGLGETPLATFORMDISPLAYEXTPROC get_platform_display;
 	EGLDisplay dpy = EGL_NO_DISPLAY;
@@ -49,6 +48,7 @@ int main(void)
 	EGLConfig cfg;
 	EGLint n = 0, major = 0, minor = 0;
 	struct gbm_device *gbm;
+	struct gbm_surface *gsurf;
 	const GLubyte *renderer, *version;
 	int fd, red, blue, result = 1;
 
@@ -63,6 +63,12 @@ int main(void)
 	gbm = gbm_create_device(fd);
 	if (!gbm) {
 		fprintf(stderr, "gbm_create_device failed\n");
+		return 1;
+	}
+	gsurf = gbm_surface_create(gbm, 64, 64, GBM_FORMAT_XRGB8888,
+				   GBM_BO_USE_RENDERING);
+	if (!gsurf) {
+		fprintf(stderr, "gbm_surface_create failed\n");
 		return 1;
 	}
 	get_platform_display = (PFNEGLGETPLATFORMDISPLAYEXTPROC)
@@ -84,7 +90,7 @@ int main(void)
 		fprintf(stderr, "no EGL config: 0x%x\n", eglGetError());
 		goto out;
 	}
-	surf = eglCreatePbufferSurface(dpy, cfg, surf_attrs);
+	surf = eglCreateWindowSurface(dpy, cfg, gsurf, NULL);
 	ctx = eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, ctx_attrs);
 	if (surf == EGL_NO_SURFACE || ctx == EGL_NO_CONTEXT ||
 	    !eglMakeCurrent(dpy, surf, surf, ctx)) {
@@ -110,6 +116,7 @@ out:
 	if (surf != EGL_NO_SURFACE)
 		eglDestroySurface(dpy, surf);
 	eglTerminate(dpy);
+	gbm_surface_destroy(gsurf);
 	gbm_device_destroy(gbm);
 	close(fd);
 	return result;
