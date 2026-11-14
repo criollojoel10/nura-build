@@ -124,14 +124,17 @@ file_exists() {
 
 file_sha() {
     local t
+    # Nunca debe abortar el script (set -e): si el fichero no existe o no es
+    # regular, se devuelve vacio y la comparacion lo reporta como DIFIERE.
     case "$MODE" in
         debugfs)
             t=$(mktemp "${TMP}/dbg.XXXXXX")
-            read_file "$1" > "$t"
-            [ -s "$t" ] && sha256sum "$t" | cut -d' ' -f1
+            read_file "$1" > "$t" || true
+            [ -s "$t" ] && sha256sum "$t" | cut -d' ' -f1 || true
             rm -f "$t" ;;
-        *) [ -f "$R$1" ] && sha256sum "$R$1" | cut -d' ' -f1 ;;
+        *) { [ -f "$R$1" ] && sha256sum "$R$1" | cut -d' ' -f1; } || true ;;
     esac
+    return 0
 }
 
 fail=0
@@ -191,7 +194,16 @@ check_file /etc/systemd/system/multi-user.target.wants/nura-wifi.service
 
 # El drop-in debe ser idéntico al que funciona en el teléfono.
 for f in 10-nura-software.conf 20-nura-notty.conf; do
-    want=$(sha256sum "$(dirname "$0")/../pmaports/device/testing/device-xiaomi-ruby/$f" 2>/dev/null | cut -d' ' -f1)
+    # La referencia vive en ruby-nura (pmaports/...) y en el repo publico
+    # (device/...). Se prueban las dos para que el chequeo sirva en ambos.
+    want=
+    for cand in "$(dirname "$0")/../pmaports/device/testing/device-xiaomi-ruby/$f" \
+                "$(dirname "$0")/../device/device-xiaomi-ruby/$f"; do
+        if [ -f "$cand" ]; then
+            want=$(sha256sum "$cand" | cut -d' ' -f1)
+            break
+        fi
+    done
     got=$(file_sha "/etc/systemd/system/plasma-mobile.service.d/$f")
     if [ -n "$want" ] && [ "$want" = "$got" ]; then
         printf 'ok       drop-in %s idéntico al del repo (%s)\n' "$f" "${got:0:12}"
