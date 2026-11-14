@@ -1,0 +1,26 @@
+--- a/drivers/gpu/drm/panfrost/panfrost_job.c
++++ b/drivers/gpu/drm/panfrost/panfrost_job.c
+@@ -744,6 +744,23 @@
+ 		job_read(pfdev, JS_TAIL_LO(js)),
+ 		sched_job);
+ 
++	/* nura-diag: que job se cuelga y en que estado, para compararlo con el job
++	 * de la sonda offscreen, que si termina. */
++	dev_err(pfdev->dev, "nura-diag: timeout jc=0x%llx req=0x%llx flush_id=%u\n",
++		(unsigned long long)job->jc,
++		(unsigned long long)job->requirements,
++		job->flush_id);
++	dev_err(pfdev->dev, "nura-diag: JS next: config=0x%x cmd=0x%x head=0x%x tail=0x%x\n",
++		job_read(pfdev, JS_CONFIG_NEXT(js)),
++		job_read(pfdev, JS_COMMAND_NEXT(js)),
++		job_read(pfdev, JS_HEAD_NEXT_LO(js)),
++		job_read(pfdev, JS_TAIL_NEXT_LO(js)));
++	dev_err(pfdev->dev, "nura-diag: AS0 faultstatus=0x%x faultaddr=0x%llx transcfg=0x%x\n",
++		readl(pfdev->iomem + AS_FAULTSTATUS(0)),
++		((u64)readl(pfdev->iomem + AS_FAULTADDRESS_HI(0)) << 32) |
++			readl(pfdev->iomem + AS_FAULTADDRESS_LO(0)),
++		readl(pfdev->iomem + AS_TRANSCFG_LO(0)));
++
+ 	panfrost_core_dump(job);
+ 
+ 	atomic_set(&pfdev->reset.pending, 1);
