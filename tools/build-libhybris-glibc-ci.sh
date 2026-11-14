@@ -29,6 +29,9 @@ cc -O2 -Wall -Wextra -Werror /src/tools/nura-hybris-probe.c \
     -o /work/nura-hybris-probe
 mkdir -p /work/stage/opt/nura-hybris/bin
 cp /work/nura-hybris-probe /work/stage/opt/nura-hybris/bin/
+cc -O1 -shared -fPIC /src/tools/bionic-tls-pad.c \
+    -o /work/stage/opt/nura-hybris/lib/nura-bionic-tls-pad.so
+readelf -lW /work/stage/opt/nura-hybris/lib/nura-bionic-tls-pad.so | grep -q TLS
 printf '%s\n' 'Experimental glibc build; not executable directly on musl.' \
     'libhybris 7079712a42ea2754adf747e70c6cc75764c8596e' \
     'android-headers 217a38e92cc64a96b4d1ac7469f30827d84485d3 (reports Android 11)' \
