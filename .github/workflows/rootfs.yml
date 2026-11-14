@@ -137,6 +137,31 @@ jobs:
           ROOT="$(find "$IMG_DIR" -maxdepth 1 -name "$DEVICE-root.img" | head -1)"
           sudo env TMPDIR=/tmp bash tools/verify-ci-rootfs.sh "$ROOT"
 
+      - name: Inyectar Mesa con Mali-G68 en la imagen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          # El parche de Mali-G68 no vive en el paquete del dispositivo: se
+          # compila aparte (workflow mesa.yml) y se instala como .apk. Sin este
+          # paso el rootfs reproducible saldria con una Mesa que no conoce el
+          # chip y la GPU volveria a colgarse en eglGetPlatformDisplay.
+          IMG_DIR="$WORK/chroot_native/home/pmos/rootfs"
+          ROOT="$(find "$IMG_DIR" -maxdepth 1 -name "$DEVICE-root.img" | head -1)"
+          gh release download nura-mesa-g68 -R "$GITHUB_REPOSITORY" -D /tmp/mesa --clobber
+          sudo mkdir -p /mnt/nura
+          sudo mount -o loop,rw "$ROOT" /mnt/nura
+          for a in /tmp/mesa/mesa-*.apk; do
+            case "$a" in *-dev-*|*-dbg-*) continue ;; esac
+            echo "== $(basename "$a")"
+            sudo tar -xzf "$a" -C /mnt/nura --exclude='.PKGINFO' --exclude='.SIGN.*' \
+              --exclude='.pre-*' --exclude='.post-*' --exclude='.trigger' --no-same-owner
+          done
+          n=$(strings -n 5 /mnt/nura/usr/lib/libgallium-*.so | grep -c 'Mali-G68' || true)
+          echo "Mali-G68 en la imagen: $n"
+          sudo umount /mnt/nura
+          [ "$n" -ge 1 ] || { echo "ERROR: la imagen no lleva Mesa con G68" >&2; exit 1; }
+
       - name: Empaquetar y publicar
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
