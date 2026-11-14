@@ -11,6 +11,11 @@ apt-get install -y --no-install-recommends build-essential ca-certificates curl 
     libelf-dev libdisplay-info-dev libzstd-dev zlib1g-dev libexpat1-dev \
     libudev-dev llvm-dev libclang-dev glslang-tools python-is-python3 \
     python3-mako python3-yaml python3-packaging
+for p in libllvmspirvlib-dev libllvmspirvlib-19-dev libllvmspirvlib-18-dev spirv-llvm-translator-dev; do
+    if apt-get install -y --no-install-recommends "$p" >/dev/null 2>&1; then
+        echo "instalado $p"; break
+    fi
+done
 mkdir -p /work
 cd /work
 curl -fsSL --max-time 900 -o mesa.tar.xz https://archive.mesa3d.org/mesa-26.2.6.tar.xz
@@ -33,7 +38,6 @@ PY
 meson setup output --prefix=/opt/nura-mesa --buildtype=release \
     -Dplatforms=wayland -Dgallium-drivers=panfrost,llvmpipe \
     -Dvulkan-drivers= -Dgallium-rusticl=false -Dgallium-va=disabled \
-    -Dmesa-clc=disabled -Dprecomp-compiler=disabled \
     -Dglx=disabled -Degl=enabled -Dgbm=enabled -Dgles2=enabled \
     -Dllvm=enabled -Dshared-llvm=disabled -Ddri-drivers-path=/opt/nura-mesa/dri
 ninja -C output -j4
