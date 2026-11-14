@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run in an ephemeral Alpine aarch64 container, never with Android vendor blobs.
 set -eu
-apk add --no-cache build-base git autoconf automake libtool pkgconf \
+apk add --no-cache build-base git autoconf automake libtool pkgconf bsd-compat-headers \
     linux-headers libdrm-dev wayland-dev wayland-protocols \
     libx11-dev libxcb-dev mesa-dev
 mkdir -p /work
@@ -28,6 +28,7 @@ mkdir -p /work/stage/opt/nura-hybris/bin
 cp /work/nura-hybris-probe /work/stage/opt/nura-hybris/bin/
 printf '%s\n' 'libhybris 7079712a42ea2754adf747e70c6cc75764c8596e' \
     'android-headers 217a38e92cc64a96b4d1ac7469f30827d84485d3' \
+    'Header branch halium-16.0 declares ANDROID_VERSION_MAJOR 11.' \
     'Android 17 runtime compatibility is not validated.' > /work/stage/BUILD-INFO.txt
 tar -C /work/stage -czf /out/libhybris-alpine-experimental.tar.gz .
 cd /out
