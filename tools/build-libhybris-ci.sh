@@ -11,8 +11,8 @@ git -C libhybris checkout 7079712a42ea2754adf747e70c6cc75764c8596e
 git clone https://github.com/Halium/android-headers.git android-headers
 git -C android-headers checkout 217a38e92cc64a96b4d1ac7469f30827d84485d3
 cd /work/libhybris/hybris
-export CFLAGS='-O2 -D_GNU_SOURCE'
-export CXXFLAGS='-O2 -D_GNU_SOURCE'
+export CFLAGS='-O2 -D_GNU_SOURCE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -include sys/cdefs.h'
+export CXXFLAGS='-O2 -D_GNU_SOURCE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -include sys/cdefs.h'
 ./autogen.sh --prefix=/opt/nura-hybris --enable-arch=arm64 \
     --with-android-headers=/work/android-headers --enable-mali-quirks \
     --enable-wayland --with-default-egl-platform=null \
