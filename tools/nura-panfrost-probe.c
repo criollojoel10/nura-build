@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <gbm.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -90,7 +91,8 @@ int main(void)
 		fprintf(stderr, "no EGL config: 0x%x\n", eglGetError());
 		goto out;
 	}
-	surf = eglCreateWindowSurface(dpy, cfg, gsurf, NULL);
+	surf = eglCreateWindowSurface(dpy, cfg,
+				      (EGLNativeWindowType)(intptr_t)gsurf, NULL);
 	ctx = eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, ctx_attrs);
 	if (surf == EGL_NO_SURFACE || ctx == EGL_NO_CONTEXT ||
 	    !eglMakeCurrent(dpy, surf, surf, ctx)) {
