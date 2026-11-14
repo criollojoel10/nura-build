@@ -6,7 +6,7 @@ apt-get update -qq
 apt-get install -y --no-install-recommends build-essential ca-certificates git \
     autoconf automake libtool pkg-config linux-libc-dev libdrm-dev \
     libwayland-dev wayland-protocols libx11-dev libxcb1-dev \
-    libegl-dev libgles-dev
+    libegl-dev libgles-dev libgbm-dev
 mkdir -p /work
 cd /work
 git clone https://github.com/libhybris/libhybris.git libhybris
@@ -39,6 +39,11 @@ echo "cc rc=$?"
 readelf --dyn-syms -W /work/stage/opt/nura-hybris/lib/nura-hybris-linker-compat.so \
     | grep 'android_' | head -5
 test -f /work/stage/opt/nura-hybris/lib/nura-hybris-linker-compat.so
+echo "== panfrost probe"
+cc -O2 -Wall -Wextra /src/tools/nura-panfrost-probe.c \
+    -o /work/stage/opt/nura-hybris/bin/nura-panfrost-probe \
+    -lEGL -lGLESv2 -lgbm
+echo "panfrost probe rc=$?"
 printf '%s\n' 'Experimental glibc build; not executable directly on musl.' \
     'libhybris 7079712a42ea2754adf747e70c6cc75764c8596e' \
     'android-headers 217a38e92cc64a96b4d1ac7469f30827d84485d3 (reports Android 11)' \
