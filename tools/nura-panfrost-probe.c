@@ -27,9 +27,11 @@ static int check_pixel_once(const char *name, GLfloat r, GLfloat b)
 	err = glGetError();
 	printf("%s=(%u,%u,%u,%u) gl_error=0x%x\n", name,
 	       px[0], px[1], px[2], px[3], err);
+	/* XRGB8888 (superficie GBM) no tiene alfa: 0 o 255 son validos. */
 	return err == GL_NO_ERROR &&
 	       px[0] == (r ? 255 : 0) && px[1] == 0 &&
-	       px[2] == (b ? 255 : 0) && px[3] == 255;
+	       px[2] == (b ? 255 : 0) &&
+	       (px[3] == 0 || px[3] == 255);
 }
 
 static int check_pixel(const char *name, float r, float b)
