@@ -25,7 +25,7 @@ make install DESTDIR=/work/stage
 cc -O2 -Wall -Wextra -Werror /src/tools/nura-hybris-probe.c \
     -I/work/stage/opt/nura-hybris/include \
     -L/work/stage/opt/nura-hybris/lib \
-    -Wl,-rpath,/opt/nura-hybris/lib -lEGL -lGLESv2 \
+    -Wl,-rpath,/opt/nura-hybris/lib -lEGL -lGLESv2 -lhybris-common \
     -o /work/nura-hybris-probe
 mkdir -p /work/stage/opt/nura-hybris/bin
 cp /work/nura-hybris-probe /work/stage/opt/nura-hybris/bin/
