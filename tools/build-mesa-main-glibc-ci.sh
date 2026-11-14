@@ -37,6 +37,10 @@ ninja -C output -j4
 mkdir -p /work/stage/opt/nura-mesa/lib/dri
 cp -a output/src/gallium/targets/dri/libgallium*.so* /work/stage/opt/nura-mesa/lib/ 2>/dev/null || true
 cp -a output/src/gallium/targets/dri/*_dri.so /work/stage/opt/nura-mesa/lib/dri/ 2>/dev/null || true
+cp -a output/src/egl/libEGL.so* /work/stage/opt/nura-mesa/lib/ 2>/dev/null || true
+cp -a output/src/mesa/glapi/es2api/libGLESv2.so* /work/stage/opt/nura-mesa/lib/ 2>/dev/null || true
+cp -a output/src/gbm/libgbm.so* /work/stage/opt/nura-mesa/lib/ 2>/dev/null || true
+ls /work/stage/opt/nura-mesa/lib | head -20
 n=$(grep -a -c 'Mali-G68' /work/stage/opt/nura-mesa/lib/*.so 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
 echo "Mali-G68 en libgallium: $n"
 [ "$n" -ge 1 ] || { echo "sin la fila G68" >&2; exit 1; }
