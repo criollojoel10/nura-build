@@ -33,6 +33,7 @@ PY
 meson setup output --prefix=/opt/nura-mesa --buildtype=release \
     -Dplatforms=wayland -Dgallium-drivers=panfrost,llvmpipe \
     -Dvulkan-drivers= -Dgallium-rusticl=false -Dgallium-va=disabled \
+    -Dmesa-clc=disabled -Dprecomp-compiler=disabled \
     -Dglx=disabled -Degl=enabled -Dgbm=enabled -Dgles2=enabled \
     -Dllvm=enabled -Dshared-llvm=disabled -Ddri-drivers-path=/opt/nura-mesa/dri
 ninja -C output -j4
