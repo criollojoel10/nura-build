@@ -47,6 +47,9 @@ echo "panfrost probe rc=$?"
 cc -O2 -Wall -Wextra /src/tools/nura-hybris-blobtest.c \
     -o /work/stage/opt/nura-hybris/bin/nura-hybris-blobtest -ldl
 echo "blob test rc=$?"
+cc -O2 -Wall -Wextra /src/tools/nura-egl-probe.c \
+    -o /work/stage/opt/nura-hybris/bin/nura-egl-probe -lEGL -lGLESv2
+echo "egl probe rc=$?"
 printf '%s\n' 'Experimental glibc build; not executable directly on musl.' \
     'libhybris 7079712a42ea2754adf747e70c6cc75764c8596e' \
     'android-headers 217a38e92cc64a96b4d1ac7469f30827d84485d3 (reports Android 11)' \
