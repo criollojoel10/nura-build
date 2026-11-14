@@ -6,11 +6,14 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y --no-install-recommends build-essential ca-certificates curl \
     python3 meson ninja-build pkg-config bison flex gettext zstd xz-utils \
-    libdrm-dev libwayland-dev wayland-protocols libwayland-egl-backend-dev libspirv-tools-dev libx11-dev libxcb1-dev \
+    libdrm-dev libwayland-dev wayland-protocols libwayland-egl-backend-dev libx11-dev libxcb1-dev \
     libxshmfence-dev libxdamage-dev libxfixes-dev x11proto-dev \
     libelf-dev libdisplay-info-dev libzstd-dev zlib1g-dev libexpat1-dev \
     libudev-dev llvm-dev libclang-dev glslang-tools python-is-python3 \
     python3-mako python3-yaml python3-packaging
+for p in libspirv-tools-dev spirv-tools-dev spirv-tools; do
+    apt-get install -y --no-install-recommends "$p" >/dev/null 2>&1 && { echo "spirv: $p"; break; }
+done
 for p in libpolly-19-dev libpolly-dev; do
     apt-get install -y --no-install-recommends "$p" >/dev/null 2>&1 && { echo "polly: $p"; break; }
 done
