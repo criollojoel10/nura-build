@@ -32,6 +32,8 @@ EGL_OPENGL_ES2_BIT = 0x0004
 EGL_SURFACE_TYPE = 0x3033
 EGL_PBUFFER_BIT = 0x0001
 EGL_CONTEXT_CLIENT_VERSION = 0x3098
+EGL_WIDTH = 0x3057
+EGL_HEIGHT = 0x3056
 EGL_RED_SIZE = 0x3024
 EGL_GREEN_SIZE = 0x3023
 EGL_BLUE_SIZE = 0x3022
@@ -170,6 +172,86 @@ def main():
                               ctypes.c_void_p(ctx)):
         log("eglMakeCurrent FAILED eglGetError=0x%x" % egl.eglGetError())
         return
+
+    # Aqui acaba lo que haciamos antes: crear contexto. Eso NO prueba que la
+    # GPU dibuje. Se pinta un color y se lee de vuelta; si los jobs fallan
+    # (DATA_INVALID_FAULT) el readback sale negro aunque EGL diga "ok".
+    # Render real por GBM: es exactamente el camino de KWin (superficie GBM +
+    # EGL). Si aqui salen js fault, el problema es del driver/Mesa con este
+    # chip, no de KWin. Se pinta un color y se lee el pixel del buffer.
+    log("[render] gbm_surface_create...")
+    gbm.gbm_surface_create.restype = ctypes.c_void_p
+    gbm.gbm_surface_create.argtypes = [ctypes.c_void_p, ctypes.c_uint32,
+                                       ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32]
+    surf = gbm.gbm_surface_create(dev, 64, 64, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING)
+    log("[render] gbm surface: %s" % ("ok" if surf else "NULL"))
+    if surf:
+        egl.eglCreateWindowSurface.restype = ctypes.c_void_p
+        egl.eglCreateWindowSurface.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
+                                               ctypes.c_void_p, ctypes.c_void_p]
+        wsurf = egl.eglCreateWindowSurface(ctypes.c_void_p(dpy), cfg,
+                                           ctypes.c_void_p(surf), None)
+        log("[render] eglCreateWindowSurface: %s" % ("ok" if wsurf else "NULL"))
+        if wsurf and egl.eglMakeCurrent(ctypes.c_void_p(dpy), ctypes.c_void_p(wsurf),
+                                        ctypes.c_void_p(wsurf), ctypes.c_void_p(ctx)):
+            gles.glClearColor.argtypes = [ctypes.c_float] * 4
+            gbm.gbm_surface_lock_front_buffer.restype = ctypes.c_void_p
+            gbm.gbm_surface_lock_front_buffer.argtypes = [ctypes.c_void_p]
+            gbm.gbm_bo_map.restype = ctypes.c_void_p
+            gbm.gbm_bo_map.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32,
+                                       ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+                                       ctypes.POINTER(ctypes.c_uint32),
+                                       ctypes.POINTER(ctypes.c_void_p)]
+            gbm.gbm_bo_unmap.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            gbm.gbm_surface_release_buffer.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+
+            def render_rgb(r, g, b, tag):
+                """Pinta un color y devuelve (canal_mayor, suma) del pixel 0,0."""
+                gles.glClearColor(r / 255.0, g / 255.0, b / 255.0, 1.0)
+                gles.glClear(0x4000)
+                gles.glFinish()
+                if not egl.eglSwapBuffers(ctypes.c_void_p(dpy), ctypes.c_void_p(wsurf)):
+                    log("[render] %s: swap falló" % tag)
+                    return None
+                bo = gbm.gbm_surface_lock_front_buffer(ctypes.c_void_p(surf))
+                if not bo:
+                    log("[render] %s: sin buffer" % tag)
+                    return None
+                stride = ctypes.c_uint32(0)
+                mdata = ctypes.c_void_p(0)
+                ptr = gbm.gbm_bo_map(ctypes.c_void_p(bo), 0, 0, 1, 1, 1,
+                                     ctypes.byref(stride), ctypes.byref(mdata))
+                out = None
+                # gbm_bo_map DEVUELVE el puntero a los datos (plane 0); `mdata`
+                # es solo un token para el unmap. Leer de mdata daba basura
+                # (mismo pixel con dos colores, incluso en begonia).
+                if ptr:
+                    buf = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte * 4)).contents
+                    # No se asume orden de canales: se devuelve la suma (brillo).
+                    out = (buf[0], buf[1], buf[2])
+                    log("[render] %s: bytes=%d,%d,%d,%d" % (tag, buf[0], buf[1], buf[2], buf[3]))
+                    gbm.gbm_bo_unmap(ctypes.c_void_p(bo), mdata)
+                else:
+                    log("[render] %s: gbm_bo_map sin datos" % tag)
+                gbm.gbm_surface_release_buffer(ctypes.c_void_p(surf), ctypes.c_void_p(bo))
+                return out
+
+            a = render_rgb(255, 0, 0, "rojo")
+            b2 = render_rgb(0, 0, 255, "azul")
+            if a and b2:
+                # Comparar canal a canal: rojo y azul suman lo mismo, asi que la
+                # suma no distingue nada (paso en begonia).
+                dif = sum(abs(x - y) for x, y in zip(a, b2))
+                log("[render] rojo=%s azul=%s diferencia=%d" % (a, b2, dif))
+                log("result_render: %s" % (
+                    "OK (la GPU dibuja y se lee)" if dif > 100
+                    else "FALLO (mismo pixel con dos colores: no dibuja)"))
+            else:
+                log("result_render: FALLO (no se pudo leer el buffer)")
+        else:
+            log("result_render: FALLO (sin superficie EGL de ventana)")
+    else:
+        log("result_render: FALLO (sin superficie GBM)")
 
     gles.glGetString.restype = ctypes.c_char_p
     gles.glGetString.argtypes = [ctypes.c_uint]
