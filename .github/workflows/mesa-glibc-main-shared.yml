@@ -1,0 +1,24 @@
+name: mesa-glibc-main-shared
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Mesa main for glibc
+        run: |
+          set -Eeuo pipefail
+          mkdir -p out
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/src:ro" -v "$PWD/out:/out" \
+            debian:trixie-slim /bin/sh /src/tools/build-mesa-main-glibc-shared-ci.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mesa-glibc-g68
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
