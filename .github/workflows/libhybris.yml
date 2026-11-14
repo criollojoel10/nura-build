@@ -1,0 +1,28 @@
+name: libhybris experimental
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build for Alpine aarch64
+        run: |
+          set -Eeuo pipefail
+          mkdir -p out
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/src:ro" -v "$PWD/out:/out" \
+            alpine:edge /bin/sh /src/tools/build-libhybris-ci.sh
+      - name: Upload open-source build
+        uses: actions/upload-artifact@v4
+        with:
+          name: libhybris-alpine-aarch64-experimental
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
