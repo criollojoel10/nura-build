@@ -61,9 +61,14 @@ net() { command -v "$1" >/dev/null 2>&1; }
     # /sys/class/drm.
     echo "[kwin]"
     if net journalctl; then
+        # La decision de KWin, aparte de los faults: si van mezclados, un
+        # aluvion de "js fault" empuja fuera la linea que importa (paso).
         journalctl -b --no-pager -o cat 2>/dev/null \
-            | grep -aiE "render device|OpenGL compositing|llvmpipe|Panfrost|Failed to (create|initialize).*OpenGL|KWIN_COMPOSE" \
-            | tail -8 | cut -c1-160
+            | grep -aiE "Added render device|Chose .*primary GPU|OpenGL compositing|llvmpipe" \
+            | tail -6 | cut -c1-160
+        echo "[gpu faults]"
+        journalctl -b --no-pager -o cat 2>/dev/null | grep -ac "js fault" || true
+        journalctl -b --no-pager -o cat 2>/dev/null | grep -a "js fault" | tail -2 | cut -c1-140
     fi
 
     # Service logs are the only place nura-wifi.sh reports its own failures.
