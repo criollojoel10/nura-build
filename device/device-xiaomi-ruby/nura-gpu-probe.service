@@ -1,0 +1,22 @@
+[Unit]
+# Real EGL probe (panfrost vs llvmpipe). Started by nura-gpu-probe.timer at
+# +10 s, which is *before* plasma-mobile's ExecStartPre runs nura-gpu-prep and
+# unbinds panfrost (18.2 s in the boot that produced:
+#
+#   [dri] renderD128 exists=True      gbm device: ok
+#   (hang inside eglGetPlatformDisplayEXT)
+#
+# Deliberately NOT ordered before plasma-mobile: a hang here must not delay the
+# compositor, otherwise the panel stays black and the guard fires. Every probe
+# step is flushed to /var/log/nura-plasma-report.txt, so a kill still leaves the
+# exact call where it stopped.
+Description=Nura GPU/EGL probe (panfrost vs llvmpipe)
+ConditionPathExists=/dev/dri
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/bin/nura-gpu-probe
+# Mesa hangs on this GPU (no Mali-G68 model); 25 s is plenty for the part that
+# does answer, and the rest of the data is already flushed.
+TimeoutStartSec=25
+SuccessExitStatus=0 1 124 143

@@ -1,0 +1,33 @@
+# Contributor: Joel Criollo <criollojoel10@users.noreply.github.com>
+# Maintainer: Joel Criollo <criollojoel10@users.noreply.github.com>
+#
+# Stub de sabor de kernel. Nura no compila el kernel aqui: la imagen de boot
+# sale de tools/build-boot-image.py con el Image del workflow kernel.yml.
+# pmbootstrap, sin embargo, exige que exista exactamente un sabor de kernel
+# para poder correr mkinitfs (si no: "only one kernel release/flavor is
+# supported, found: []"), y boot-deploy exige /boot/vmlinuz*. Este paquete
+# aporta solo esos dos requisitos; no instala modulos ni DTBs.
+#
+# El initramfs de /boot que genera pmbootstrap no se usa: el del telefono lo
+# arma tools/build-initramfs.sh.
+pkgname=linux-xiaomi-ruby
+pkgver=6.6.143
+pkgrel=0
+pkgdesc="Stub kernel flavor for ruby (real Image is flashed by tools/build-boot-image.py)"
+arch="aarch64"
+url="https://github.com/criollojoel10/ruby-nura"
+license="GPL-2.0-only"
+options="!check !strip !tracedeps"
+source="kernel.release vmlinuz-xiaomi-ruby"
+
+package() {
+	install -Dm644 "$srcdir"/kernel.release \
+		"$pkgdir"/usr/share/kernel/xiaomi-ruby/kernel.release
+	install -Dm644 "$srcdir"/vmlinuz-xiaomi-ruby \
+		"$pkgdir"/boot/vmlinuz-xiaomi-ruby
+}
+
+sha512sums="
+db9d85fc9f223bee7223344476944b9d15a5e84d5542ea39577a582e37bccd9483d83f622b78d8851e2d99a8d42041bbaf2c1ac9dd1fc8c7edb8a1ae2b3c16d7  kernel.release
+3a43566d03a7a5fcbd4c8046818aa0954af75764c17fa826c95235237e73289a684ef8e9a267b2619c35aa78abf1b9c99420ad419f1055f0d7d61b7df0f1cb90  vmlinuz-xiaomi-ruby
+"

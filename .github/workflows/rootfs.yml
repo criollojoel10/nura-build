@@ -1,0 +1,167 @@
+name: rootfs
+
+# Rootfs postmarketOS para ruby con pmbootstrap, en runner ARM nativo.
+# `ui` selecciona console o plasma-mobile (por defecto plasma-mobile: es el
+# entorno que arranca en el panel de este telefono).
+#
+# El kernel NO se compila: la imagen de boot sale del kernel del ROM.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ui:
+        description: "Interfaz"
+        type: choice
+        options: [plasma-mobile, console]
+        default: plasma-mobile
+      image_size_mb:
+        description: "Tamano del rootfs (MiB)"
+        type: string
+        default: "4096"
+      runner:
+        description: "Runner (ubuntu-24.04-arm nativo)"
+        type: string
+        default: "ubuntu-24.04-arm"
+      release_tag:
+        description: "Release donde publicar la imagen"
+        type: string
+        default: "nura-rootfs"
+      extra_packages:
+        description: "Paquetes extra separados por coma"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rootfs-${{ inputs.ui }}
+  cancel-in-progress: true
+
+env:
+  WORK: /tmp/pmb
+  PMAPORTS: /tmp/pmaports
+  DEVICE: xiaomi-ruby
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Cache (ccache, distfiles, apk)
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/pmb/cache_ccache
+            /tmp/pmb/cache_distfiles
+            /tmp/pmb/cache_apk_x86_64
+            /tmp/pmb/cache_apk_aarch64
+          key: pmb-${{ inputs.ui }}-${{ runner.arch }}-${{ hashFiles('device/device-xiaomi-ruby/**') }}
+          restore-keys: |
+            pmb-${{ inputs.ui }}-${{ runner.arch }}-
+
+      - name: Dependencias del host
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            git python3 python3-pip python3-venv kpartx parted dosfstools \
+            e2fsprogs util-linux openssl rsync xz-utils zstd
+
+      - name: Instalar pmbootstrap
+        run: |
+          set -Eeuo pipefail
+          python3 -m venv .venv
+          .venv/bin/pip -q install --upgrade pip
+          .venv/bin/pip -q install \
+            "git+https://gitlab.postmarketos.org/postMarketOS/pmbootstrap.git"
+          .venv/bin/pmbootstrap --version
+
+      - name: Clonar pmaports y copiar el port
+        run: |
+          set -Eeuo pipefail
+          git clone -q --depth=1 https://gitlab.postmarketos.org/postMarketOS/pmaports.git "$PMAPORTS"
+          mkdir -p "$PMAPORTS/device/testing"
+          cp -a device/device-"$DEVICE" device/linux-"$DEVICE" "$PMAPORTS/device/testing/"
+          ls -l "$PMAPORTS/device/testing/device-$DEVICE" | head -5
+
+      - name: Comprobar el port (fuentes versionadas + sha512)
+        run: |
+          set -Eeuo pipefail
+          bash tools/check-port-sources.sh "$PMAPORTS/device/testing/device-$DEVICE"
+
+      - name: Configurar pmbootstrap (sin preguntas)
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$WORK"
+          .venv/bin/python -c 'import pmb.config; print(pmb.config.work_version)' > "$WORK/version"
+          CFG="$HOME/.config/pmbootstrap_v3.cfg"
+          mkdir -p "$(dirname "$CFG")"
+          {
+            printf '%s\n' '[pmbootstrap]'
+            printf 'device = %s\n' "$DEVICE"
+            printf 'ui = %s\n' "${{ inputs.ui }}"
+            printf 'kernel = %s\n' "$DEVICE"
+            printf 'user = %s\n' 'nura'
+            printf 'hostname = %s\n' 'ruby-nura'
+            printf 'timezone = %s\n' 'UTC'
+            printf 'locale = %s\n' 'en_US.UTF-8'
+            printf 'extra_packages = %s\n' "${INPUTS_EXTRA:-none}"
+            printf 'work = %s\n' "$WORK"
+            printf 'aports = %s\n' "$PMAPORTS"
+            printf 'sudo_timer = %s\n' 'false'
+          } > "$CFG"
+          cat "$CFG"
+          .venv/bin/pmbootstrap -c "$CFG" -p "$PMAPORTS" -w "$WORK" config
+        env:
+          INPUTS_EXTRA: ${{ inputs.extra_packages }}
+
+      - name: pmbootstrap install (rootfs separado)
+        run: |
+          set -Eeuo pipefail
+          .venv/bin/pmbootstrap -p "$PMAPORTS" -w "$WORK" install \
+            --split --filesystem ext4 --password pmos \
+            --add linux-$DEVICE </dev/null
+        env:
+          PMB_APK_CACHE: "1"
+
+      - name: Verificar el rootfs construido
+        run: |
+          set -Eeuo pipefail
+          IMG_DIR="$WORK/chroot_native/home/pmos/rootfs"
+          ROOT="$(find "$IMG_DIR" -maxdepth 1 -name "$DEVICE-root.img" | head -1)"
+          sudo env TMPDIR=/tmp bash tools/verify-ci-rootfs.sh "$ROOT"
+
+      - name: Empaquetar y publicar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p out
+          IMG_DIR="$WORK/chroot_native/home/pmos/rootfs"
+          ROOT="$(find "$IMG_DIR" -maxdepth 1 -name "$DEVICE-root.img" | head -1)"
+          cp "$ROOT" "out/$DEVICE-root.img"
+          zstd -T0 -10 -f "out/$DEVICE-root.img" -o "out/$DEVICE-root.img.zst"
+          rm -f "out/$DEVICE-root.img"
+          ( cd out && sha256sum *.zst > SHA256SUMS && cat SHA256SUMS )
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+                 --title "Nura rootfs (${{ inputs.ui }})" \
+                 --notes "pmbootstrap ui=${{ inputs.ui }} en ${{ inputs.runner }} (run $GITHUB_RUN_ID)"
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" out/*.zst out/SHA256SUMS --clobber
+
+      - name: Diagnostico del fallo
+        if: failure()
+        run: |
+          set -Eeuo pipefail
+          for f in "$WORK/log.txt" "$WORK/pmbootstrap.log"; do
+            [ -f "$f" ] || continue
+            echo "=== $f (ultimas 80) ==="
+            tail -80 "$f"
+          done

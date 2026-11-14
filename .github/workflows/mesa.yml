@@ -1,0 +1,161 @@
+name: mesa-g68
+
+# Compila Mesa para aarch64 con soporte de Mali-G68 y publica los .apk.
+#
+# Repo publico a proposito: Actions es gratuito y los runners ARM estan
+# disponibles, asi que el build es nativo (sin qemu) y tarda minutos en vez de
+# horas. El cambio de codigo es una sola fila de la tabla de panfrost, copiada
+# de upstream (commit 93d2c51f, MR mesa!43414).
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runner (ubuntu-24.04-arm nativo; ubuntu-24.04 = x86+qemu)"
+        type: string
+        default: "ubuntu-24.04-arm"
+      release_tag:
+        description: "Release donde publicar los .apk"
+        type: string
+        default: "nura-mesa-g68"
+      pmaports_ref:
+        description: "Rama/commit de pmaports (vacio = main)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mesa-g68
+  cancel-in-progress: true
+
+env:
+  WORK: /tmp/pmb
+  PMAPORTS: /tmp/pmaports
+  DEVICE: xiaomi-ruby
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Cache (ccache, distfiles, apk)
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/pmb/cache_ccache
+            /tmp/pmb/cache_distfiles
+            /tmp/pmb/cache_apk_x86_64
+            /tmp/pmb/cache_apk_aarch64
+          key: pmb-mesa-${{ runner.arch }}-${{ hashFiles('tools/patch-mesa-g68.py') }}
+          restore-keys: |
+            pmb-mesa-${{ runner.arch }}-
+
+      - name: Dependencias del host
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            git python3 python3-pip python3-venv rsync xz-utils zstd
+
+      - name: Instalar pmbootstrap
+        run: |
+          set -Eeuo pipefail
+          python3 -m venv .venv
+          .venv/bin/pip -q install --upgrade pip
+          .venv/bin/pip -q install \
+            "git+https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git"
+          .venv/bin/pmbootstrap --version
+
+      - name: Clonar pmaports
+        run: |
+          set -Eeuo pipefail
+          git clone -q --depth=1 ${INPUTS_REF:+-b "$INPUTS_REF"} \
+            https://gitlab.postmarketos.org/postMarketOS/pmaports.git "$PMAPORTS"
+          git -C "$PMAPORTS" log --oneline -1
+          mkdir -p "$PMAPORTS/device/testing"
+          cp -a device/device-"$DEVICE" device/linux-"$DEVICE" "$PMAPORTS/device/testing/"
+        env:
+          INPUTS_REF: ${{ inputs.pmaports_ref }}
+
+      - name: Traer mesa de Alpine aports (es un override, no vive en pmaports)
+        run: |
+          set -Eeuo pipefail
+          # gitlab.alpinelinux.org responde 418 a los runners; el espejo oficial
+          # en GitHub tiene la misma version.
+          git clone -q --depth=1 --filter=blob:none --sparse \
+            https://github.com/alpinelinux/aports.git /tmp/aports
+          git -C /tmp/aports sparse-checkout set main/mesa
+          cp -a /tmp/aports/main/mesa "$PMAPORTS/main/mesa"
+          sed -n '/^pkgver=/p;/^pkgrel=/p' "$PMAPORTS/main/mesa/APKBUILD"
+
+      - name: Parchear mesa (fila Mali-G68 + recorte de drivers)
+        run: |
+          set -Eeuo pipefail
+          python3 tools/patch-mesa-g68.py "$PMAPORTS/main/mesa/APKBUILD"
+          sed -n '/^prepare()/,/^}/p' "$PMAPORTS/main/mesa/APKBUILD"
+          grep -n '^pkgrel=' "$PMAPORTS/main/mesa/APKBUILD"
+
+      - name: Configurar pmbootstrap
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$WORK"
+          .venv/bin/python -c 'import pmb.config; print(pmb.config.work_version)' > "$WORK/version"
+          CFG="$HOME/.config/pmbootstrap_v3.cfg"
+          mkdir -p "$(dirname "$CFG")"
+          {
+            printf '%s\n' '[pmbootstrap]'
+            printf 'device = %s\n' "$DEVICE"
+            printf 'ui = %s\n' 'console'
+            printf 'kernel = %s\n' "$DEVICE"
+            printf 'user = %s\n' 'nura'
+            printf 'work = %s\n' "$WORK"
+            printf 'aports = %s\n' "$PMAPORTS"
+            printf 'sudo_timer = %s\n' 'false'
+          } > "$CFG"
+          .venv/bin/pmbootstrap -c "$CFG" -p "$PMAPORTS" -w "$WORK" config
+
+      - name: Compilar mesa
+        run: |
+          set -Eeuo pipefail
+          .venv/bin/pmbootstrap -p "$PMAPORTS" -w "$WORK" build mesa --arch aarch64 </dev/null
+
+      - name: Recoger .apk
+        run: |
+          set -Eeuo pipefail
+          mkdir -p out
+          find "$WORK/packages" -name 'mesa-*.apk' -newermt '-6 hours' | sort > /tmp/apks.txt
+          [ -s /tmp/apks.txt ] || { echo "no hay .apk de mesa" >&2; exit 1; }
+          while read -r f; do cp "$f" out/; done < /tmp/apks.txt
+          ( cd out && sha256sum *.apk > SHA256SUMS && ls -l && cat SHA256SUMS )
+
+      - name: Publicar los .apk
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -Eeuo pipefail
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+                 --title "Mesa con Mali-G68" \
+                 --notes "Mesa compilado con la fila de Mali-G68 (upstream 93d2c51f). Run $GITHUB_RUN_ID en ${{ inputs.runner }}."
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" out/*.apk out/SHA256SUMS --clobber
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | "\(.name) \(.size)"'
+
+      - name: Diagnostico del fallo
+        if: failure()
+        run: |
+          set -Eeuo pipefail
+          for f in "$WORK/log.txt" "$WORK/pmbootstrap.log"; do
+            [ -f "$f" ] || continue
+            echo "=== $f (ultimas 60) ==="
+            tail -60 "$f"
+          done

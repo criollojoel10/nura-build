@@ -1,0 +1,127 @@
+# Reference: <https://postmarketos.org/devicepkg>
+maintainer="Joel Criollo <criollojoel10@users.noreply.github.com>"
+pkgname=device-xiaomi-ruby
+pkgdesc="Xiaomi Redmi Note 12 Pro 5G"
+pkgver=1
+# pkgrel must not be 0: apk would prefer the version published in pmaports
+# edge instead of this local one.
+pkgrel=3
+url="https://postmarketos.org"
+license="MIT"
+arch="aarch64"
+options="!check !archcheck"
+# El kernel del ROM (6.6.143-…-Singularity) no se recompila: la imagen de boot
+# la arma tools/build-boot-image.py. Por eso este paquete no depende de
+# linux-xiaomi-ruby ni de mkbootimg, y deviceinfo declara
+# deviceinfo_generate_bootimg="false". Solo aporta deviceinfo, cmdline y los
+# modulos de initramfs, mas el arranque de Plasma en este kernel sin VT.
+# SSH es la unica via de consola cuando no hay VT ni fbcon: el rootfs que
+# venia de Kupfer lo traia y el build de CI no, asi que se declara aqui.
+depends="
+	postmarketos-base
+	openssh
+	"
+makedepends="devicepkg-dev"
+source="deviceinfo kernel-cmdline.conf modules-initfs
+	10-nura-software.conf
+	20-nura-notty.conf
+	30-nura-zram.conf
+	99-nura-journal.conf
+	nura-takeover.sh
+	nura-gpu-prep
+	nura-backlight
+	nura-shot
+	nura-shot-run
+	nura-zramstart
+	nura-wifi.sh
+	nura-wifi.service
+	nura-bars-test
+	nura-net-report
+	nura-net-report.service
+	nura-gpu-probe
+	nura-gpu-probe.service
+	nura-gpu-probe.timer
+	nurafb.bin
+	nura-dt-report
+	nura-dt-report.service
+	"
+subpackages="$pkgname-kernel-xiaomi-ruby:kernel_xiaomi_ruby"
+
+build() {
+	devicepkg_build $startdir $pkgname
+}
+
+package() {
+	devicepkg_package $startdir $pkgname
+	# Plasma Mobile on a kernel without VT/fbcon and without a usable GPU:
+	# KWin needs card0 for free (nurafb holds master), llvmpipe on dumb buffers,
+	# the systemd user bus, and the backlight re-sent after each atomic resume.
+	# See tools/kde/ and docs/STATUS.md.
+	install -Dm755 "$srcdir"/nura-takeover.sh "$pkgdir"/usr/bin/nura-takeover
+	install -Dm755 "$srcdir"/nura-gpu-prep "$pkgdir"/usr/bin/nura-gpu-prep
+	install -Dm755 "$srcdir"/nura-backlight "$pkgdir"/usr/bin/nura-backlight
+	install -Dm755 "$srcdir"/nura-shot "$pkgdir"/usr/bin/nura-shot
+	install -Dm755 "$srcdir"/nura-shot-run "$pkgdir"/usr/bin/nura-shot-run
+	install -Dm755 "$srcdir"/nura-zramstart "$pkgdir"/usr/bin/nura-zramstart
+	install -Dm755 "$srcdir"/nura-wifi.sh "$pkgdir"/usr/bin/nura-wifi
+	install -Dm644 "$srcdir"/nura-wifi.service "$pkgdir"/etc/systemd/system/nura-wifi.service
+	install -Dm755 "$srcdir"/nura-bars-test "$pkgdir"/usr/bin/nura-bars-test
+	install -Dm755 "$srcdir"/nura-net-report "$pkgdir"/usr/bin/nura-net-report
+	install -Dm644 "$srcdir"/nura-net-report.service "$pkgdir"/etc/systemd/system/nura-net-report.service
+	install -Dm755 "$srcdir"/nura-gpu-probe "$pkgdir"/usr/bin/nura-gpu-probe
+	install -Dm644 "$srcdir"/nura-gpu-probe.service "$pkgdir"/etc/systemd/system/nura-gpu-probe.service
+	install -Dm644 "$srcdir"/nura-gpu-probe.timer "$pkgdir"/etc/systemd/system/nura-gpu-probe.timer
+	install -Dm755 "$srcdir"/nurafb.bin "$pkgdir"/usr/bin/nurafb
+	install -Dm755 "$srcdir"/nura-dt-report "$pkgdir"/usr/bin/nura-dt-report
+	install -Dm644 "$srcdir"/nura-dt-report.service "$pkgdir"/etc/systemd/system/nura-dt-report.service
+	mkdir -p "$pkgdir"/etc/systemd/system/multi-user.target.wants
+	ln -s /etc/systemd/system/nura-wifi.service \
+		"$pkgdir"/etc/systemd/system/multi-user.target.wants/nura-wifi.service
+	ln -s /etc/systemd/system/nura-dt-report.service \
+		"$pkgdir"/etc/systemd/system/multi-user.target.wants/nura-dt-report.service
+	ln -s /etc/systemd/system/nura-net-report.service \
+		"$pkgdir"/etc/systemd/system/multi-user.target.wants/nura-net-report.service
+	ln -s /etc/systemd/system/nura-gpu-probe.timer \
+		"$pkgdir"/etc/systemd/system/timers.target.wants/nura-gpu-probe.timer
+	for f in 10-nura-software.conf 20-nura-notty.conf; do
+		install -Dm644 "$srcdir/$f" \
+			"$pkgdir"/etc/systemd/system/plasma-mobile.service.d/"$f"
+	done
+	install -Dm644 "$srcdir"/30-nura-zram.conf \
+		"$pkgdir"/etc/systemd/system/postmarketos-zram-swap.service.d/30-nura-zram.conf
+	install -Dm644 "$srcdir"/99-nura-journal.conf \
+		"$pkgdir"/etc/systemd/journald.conf.d/99-nura-journal.conf
+}
+
+kernel_xiaomi_ruby() {
+	pkgdesc="Xiaomi Redmi Note 12 Pro 5G (kernel flavor xiaomi-ruby)"
+	depends="linux-xiaomi-ruby"
+	devicepkg_subpackage_kernel $startdir $pkgname $subpkgname
+}
+
+sha512sums="
+e1f4fb3fdb25db5123949a87e4d1baf7357205d6caadec9edf5b416c4015be03a836d3f2e7b1e72f12ff487edb5b04a7556c0f3662ba44e6e2634e414841bdba  deviceinfo
+d89b08ef9888faae6cb96a378421669e6119023307a3b5a109e18b7f9e2c70e1f8b240ba8f9b9d22d319fa28e416565d06074d34382f482c9b037b7ab3f4861c  kernel-cmdline.conf
+8a6fa2e158a9c03cf1effef6000fb5f6ae614a3bb8c76c93072fa2258482cbb501dbee2c44fbd1915be2690208f43a04cdecd1db91170db5669bc3323d118278  modules-initfs
+1c6d581200abea51efc013866a92addec49ab8662490590b793adacd6c45520f50e475179d78d8710abc417d919f56beb74f1867dc57f330b4b38b1b165879bd  10-nura-software.conf
+c3b0e0cb7040a34bdb345408444a5ab252a01bdaced1988f5d8adef121e1a842b07d326caff091f56d9e9beb0dbbd6ddf46bc10a2c25e62efe381fd4b74bf69c  20-nura-notty.conf
+fbabf424ca292e800fbbf3395247c51c3cf7a6692978911d735310ae9b1a3bd2ccdf7273036cdd322c82dbdbac372e74c6f46ada678da88428ece0501cbb87b6  30-nura-zram.conf
+caf5c9142a9680bf6844095fa7fa94a5c15825f8e3d84e4569342e6c98cfcb7033f85ba7424d46bba6e4601ec02694ed37c28f97389342c85eea21908450f488  99-nura-journal.conf
+5b4c8bd187eb579806f595f0e4e19111b4563a1a033751ed9263cdf65fc569f190c9dd8172a91692df895d1b42dfa4f0c9883ce6dcf7e7adf347812801b4b934  nura-takeover.sh
+8649d46112ee34dc3b0197e76b1e86a5e1b32533d0cd42f4d0d60b3e3e2ea30400e7b23ecef7c84c4b0a0f19c5caf44431e3e1dee0582b7af5155a3e30119364  nura-gpu-prep
+4910409b71866c1045c38ebac6f578088719b8cea0cba95818ee1fce77ea566f8a6dd1d31a7da18dd88b554a733f87891a83c45b5e2f919afe4399db46d241a7  nura-backlight
+d832eefa4b8d8e9381ee32cfcb5e61ad344da37bf96d4068439dcbee6f4dfc1019388c287c2c15a2409a0e6263570fa4c497d5c1660d42cd069317eb07a0a2a2  nura-shot
+e17289672ea573859fb57e35354befb51d21e96afd43ea4ffd56a149535f1880b03314225dd0a5151ee9f01614cbc56a0f56927c16701891f2b4ac7beb61d5ca  nura-shot-run
+f44b510c2928b4cde17b0c1d0c834cfe9c09295d057df8271f75c0636fa1abccafbdcbdf20b19184782ec29b48521f8556d2c003210dfbb827d28265fb7db8a4  nura-zramstart
+0da60fef557238ae0f16ffe606a57da52f82ab5ddabf3f55b906633eaefa55db54be5c56aba8ded6f9f1786cf731180c9e84a21a07ceda8e89f96ee751ed25f2  nura-wifi.sh
+6a9ba22f6eeeea79e7c9255f54a79ad88027e27c30056223265adb0f8beab43c2fc8b87a2ddbb426837bfd779a482bb74cfa79017ad42e89422662b659051b5c  nura-wifi.service
+a29a9cd39f17dc5c9b94d21c6909c8a404407bd25f64048e53a385b6917d12bb64c28d3abdb9ed8f5ad9374e5f58c5e893986b493df43d38cf93d996474160de  nura-bars-test
+e9bd2deac6028cc06506c923e281bdfb662726b64bfa9b3cd98346b089fd3f5985e3630fef32d3f58334f898e43775218957acb59f11d3819adcdd6b87cd4096  nura-net-report
+ed97b5450836550cabd82e0bf063aebf6ff013d574e6b5b274ac47ae0003d803c36ac5c74eec6a0c9dc65b35326c6fa91d3f76d4737d9df1f12eaa4fd3a2a4c7  nura-net-report.service
+1b94433ca29fddff2db96b0c1198fe89e291a2394b03fd1dcf1b33f5807cbfc82791eff0c68628ab424e2d3d3bb0377bc80525afaa310d9a5942e00ee046de70  nura-gpu-probe
+e41f5f32f89c607d39992a592086325ac169c986c05aa36d04bb192d69a8a82f908e21fa569740b3c3195bf4f60a62739c130c4085a6907422f653a6955196e8  nura-gpu-probe.service
+46cbe79ff8f9d83b86c20ec5bc98718aec7e1bb6327755f42a53418e96850aa6d7769615d1d08d309a39df690ccfe892f82a6c7934ff7c2ddb282c062e9c0311  nura-gpu-probe.timer
+53bdc27c99f9c64db432254ccac99ed643665bb42ad3bc533121fe1929e6e9490f6ed9378c62a384276b7ad3556102f1327a6d0ceadd2998fa7c1dde50aed4cb  nurafb.bin
+f697351ed227899edd982e866421e5e398965deb9017caecbea592895c9d4b233ce22ec14c21a9420a2594865929bb0219973e9986a9c6be50cc8add93774cc4  nura-dt-report
+33b7c59c61198d6a18fc1679cdbc5f705aafc3fed6ba82e0a7a6accef78070a5b15988230c0c92b35406fd51e576051b3944e0a2d5e977f1dfadc6d08d3c95a8  nura-dt-report.service
+"

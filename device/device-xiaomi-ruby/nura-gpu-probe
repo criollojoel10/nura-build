@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Probe the real GPU without touching the compositor.
+
+Facts measured so far:
+  * kernel: "panfrost 13000000.mali: mali-g68 id 0x9204" and
+    "[drm] Initialized panfrost 1.2.0 ... on minor 1" -> the driver binds;
+  * Mesa: libgallium-26.2.6.so has zero "Mali-G68" strings;
+  * the rootfs forces software (10-nura-software.conf sets
+    LIBGL_ALWAYS_SOFTWARE=1, MESA_LOADER_DRIVER_OVERRIDE=swrast);
+  * the previous version of this probe wrote nothing at all, which means it
+    hung (most likely inside eglInitialize on panfrost) and only the systemd
+    timeout killed it -- no evidence.
+
+So now every step is written and *flushed* immediately: whatever line is last
+in the report tells you exactly where it stopped, even if it never returns.
+
+Output: /var/log/nura-plasma-report.txt (override with NURA_REPORT).
+Never fatal: exits 0 always.
+"""
+import ctypes
+import os
+import subprocess
+import sys
+import time
+
+REP = os.environ.get("NURA_REPORT", "/var/log/nura-plasma-report.txt")
+
+EGL_PLATFORM_GBM_KHR = 0x31D7
+EGL_NONE = 0x3038
+EGL_RENDERABLE_TYPE = 0x3040
+EGL_OPENGL_ES2_BIT = 0x0004
+EGL_SURFACE_TYPE = 0x3033
+EGL_PBUFFER_BIT = 0x0001
+EGL_CONTEXT_CLIENT_VERSION = 0x3098
+EGL_RED_SIZE = 0x3024
+EGL_GREEN_SIZE = 0x3023
+EGL_BLUE_SIZE = 0x3022
+EGL_ALPHA_SIZE = 0x3021
+EGL_NO_CONTEXT = ctypes.c_void_p(0)
+EGL_NO_SURFACE = ctypes.c_void_p(0)
+GL_VENDOR, GL_RENDERER, GL_VERSION = 0x1F00, 0x1F01, 0x1F02
+GBM_FORMAT_XRGB8888 = 0x34325258
+GBM_BO_USE_RENDERING = 1 << 2
+
+_fh = None
+
+
+def log(msg):
+    """Write one line and flush: survives a hang on the next call."""
+    global _fh
+    line = str(msg)
+    try:
+        if _fh is None:
+            _fh = open(REP, "a", buffering=1)
+        _fh.write(line + "\n")
+        _fh.flush()
+    except OSError as exc:
+        print("gpu probe: cannot write %s: %s" % (REP, exc), file=sys.stderr)
+    print(line)
+
+
+def load(*names):
+    for n in names:
+        try:
+            return ctypes.CDLL(n)
+        except OSError:
+            continue
+    return None
+
+
+def sh(cmd):
+    try:
+        out = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                             timeout=10).stdout
+        return out.strip()
+    except Exception as exc:  # noqa: BLE001 - diagnostics must not raise
+        return "error: %r" % (exc,)
+
+
+def main():
+    log("-- gpu probe %s --" % time.strftime("%F %T UTC", time.gmtime()))
+    log("[dri] %s" % sh("ls /dev/dri 2>&1"))
+    for n in ("/dev/dri/card0", "/dev/dri/card1", "/dev/dri/renderD128",
+              "/dev/dri/renderD129"):
+        log("[dri] %s exists=%s" % (n, os.path.exists(n)))
+    log("[panfrost dmesg] %s" % sh(
+        "dmesg 2>/dev/null | grep -iE 'panfrost|mali-g68' | tail -5"))
+
+    nodes = [p for p in ("/dev/dri/renderD128", "/dev/dri/renderD129",
+                         "/dev/dri/card1") if os.path.exists(p)]
+    if not nodes:
+        log("result: no render node (panfrost bound but Mesa cannot use it)")
+        return
+    log("usando %s" % nodes[0])
+
+    gbm = load("libgbm.so.1", "libgbm.so")
+    egl = load("libEGL.so.1", "libEGL.so")
+    gles = load("libGLESv2.so.2", "libGLESv2.so")
+    log("libs gbm=%s egl=%s gles=%s" % (bool(gbm), bool(egl), bool(gles)))
+    if not (gbm and egl and gles):
+        log("result: faltan librerias")
+        return
+
+    fd = os.open(nodes[0], os.O_RDWR | os.O_CLOEXEC)
+    gbm.gbm_create_device.restype = ctypes.c_void_p
+    gbm.gbm_create_device.argtypes = [ctypes.c_int]
+    dev = gbm.gbm_create_device(fd)
+    log("gbm device: %s" % ("ok" if dev else "NULL"))
+    if not dev:
+        log("result: gbm_create_device fallo")
+        return
+
+    egl.eglGetProcAddress.restype = ctypes.c_void_p
+    egl.eglGetProcAddress.argtypes = [ctypes.c_char_p]
+    addr = egl.eglGetProcAddress(b"eglGetPlatformDisplayEXT")
+    if addr:
+        proto = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p,
+                                 ctypes.POINTER(ctypes.c_int))
+        dpy = proto(addr)(EGL_PLATFORM_GBM_KHR, dev, None)
+        log("eglGetPlatformDisplayEXT: %s" % ("ok" if dpy else "NULL"))
+    else:
+        egl.eglGetDisplay.restype = ctypes.c_void_p
+        egl.eglGetDisplay.argtypes = [ctypes.c_void_p]
+        dpy = egl.eglGetDisplay(dev)
+        log("eglGetDisplay (fallback): %s" % ("ok" if dpy else "NULL"))
+    if not dpy:
+        log("result: sin display EGL")
+        return
+
+    maj, mnr = ctypes.c_int(0), ctypes.c_int(0)
+    log("eglInitialize... (aqui se colgo la version anterior)")
+    if not egl.eglInitialize(ctypes.c_void_p(dpy), ctypes.byref(maj), ctypes.byref(mnr)):
+        log("eglInitialize FAILED eglGetError=0x%x" % egl.eglGetError())
+        return
+    log("eglInitialize ok %d.%d (aqui ya se puede usar la GPU)" % (maj.value, mnr.value))
+    egl.eglQueryString.restype = ctypes.c_char_p
+    egl.eglQueryString.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+    log("EGL_VENDOR=%s" % ((egl.eglQueryString(ctypes.c_void_p(dpy), 0x3053) or b"?")
+                           .decode("utf-8", "replace")))
+
+    cfg = ctypes.c_void_p(0)
+    n = ctypes.c_int(0)
+    # Lista de atributos bien formada y terminada en EGL_NONE. La version
+    # anterior metia EGL_NONE a mitad y eglChooseConfig devolvia 0 con
+    # eglGetError()=0x3000 (EGL_SUCCESS), que despista.
+    # Sin EGL_SURFACE_TYPE: panfrost no ofrece configs de pbuffer y
+    # eglChooseConfig devolvia 0 configs con eglGetError()=EGL_SUCCESS
+    # (comprobado en begonia, MT6785). Con solo RENDERABLE_TYPE si hay.
+    attribs = [
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
+        EGL_ALPHA_SIZE, 8,
+        EGL_NONE,
+    ]
+    attrs = (ctypes.c_int * len(attribs))(*attribs)
+    if not egl.eglChooseConfig(ctypes.c_void_p(dpy), attrs, ctypes.byref(cfg), 1,
+                               ctypes.byref(n)) or n.value < 1:
+        log("eglChooseConfig FAILED eglGetError=0x%x n=%d" % (egl.eglGetError(), n.value))
+        return
+
+    log("eglCreateContext...")
+    egl.eglCreateContext.restype = ctypes.c_void_p
+    ctx = egl.eglCreateContext(ctypes.c_void_p(dpy), cfg, EGL_NO_CONTEXT,
+                               (ctypes.c_int * 3)(EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE))
+    if not ctx:
+        log("eglCreateContext NULL eglGetError=0x%x" % egl.eglGetError())
+        return
+    log("eglMakeCurrent...")
+    if not egl.eglMakeCurrent(ctypes.c_void_p(dpy), EGL_NO_SURFACE, EGL_NO_SURFACE,
+                              ctypes.c_void_p(ctx)):
+        log("eglMakeCurrent FAILED eglGetError=0x%x" % egl.eglGetError())
+        return
+
+    gles.glGetString.restype = ctypes.c_char_p
+    gles.glGetString.argtypes = [ctypes.c_uint]
+    renderer = None
+    for name, enum in (("GL_VENDOR", GL_VENDOR), ("GL_RENDERER", GL_RENDERER),
+                       ("GL_VERSION", GL_VERSION)):
+        val = (gles.glGetString(enum) or b"?").decode("utf-8", "replace")
+        if enum == GL_RENDERER:
+            renderer = val
+        log("%s: %s" % (name, val))
+
+    log("result: %s" % ("PANFROST (hardware)" if renderer and ("Mali" in renderer or "Panfrost" in renderer)
+                        else "software (%s)" % renderer))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as exc:  # noqa: BLE001 - never break the boot
+        log("-- gpu probe exception: %r --" % (exc,))
+    sys.exit(0)

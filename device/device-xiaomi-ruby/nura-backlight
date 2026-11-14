@@ -1,0 +1,114 @@
+#!/bin/sh
+# Re-send the panel brightness after the compositor takes over, and leave a
+# persistent report of the DRM state for the next offline analysis.
+#
+# MediaTek resets the panel backlight on every mtk_drm_crtc_atomic_resume; that
+# is why nurafb logs "backlight resend: 511 -> 3071" and why the panel can stay
+# black even though compositing is up ("OpenGL compositing has been
+# successfully initialized").
+#
+# KWin runs as uid 10000, but this helper runs as root (ExecStartPost=+).  For
+# the first 30 s it keeps putting 70 % back every time it reads 0, and at t=20
+# it writes /var/log/nura-plasma-report.txt.
+set -u
+p=
+for c in /sys/class/leds/lcd-backlight /sys/class/backlight/lcd-backlight \
+         /sys/class/backlight/backlight; do
+    [ -r "$c/brightness" ] && { p=$c; break; }
+done
+# Never exit without a report: a missing backlight node is itself a result.
+if [ -z "$p" ]; then
+    echo "== nura-backlight: no backlight node at $(date -u '+%F %T UTC')" >>/var/log/nura-plasma-report.txt
+fi
+
+max=$(cat "${p:+$p/max_brightness}" 2>/dev/null || echo 4095)
+case $max in ''|*[!0-9]*) max=4095 ;; esac
+val=$((max * 7 / 10))
+d=/sys/class/drm/card0-DSI-1
+rep=/var/log/nura-plasma-report.txt
+
+# DRM state is exposed through debugfs, which may not be mounted on this
+# system. Do not replace an existing mount; record failure for offline review.
+if ! grep -q ' /sys/kernel/debug debugfs ' /proc/mounts; then
+    mount -t debugfs -o nosuid,nodev,noexec debugfs /sys/kernel/debug 2>>"$rep" ||
+        echo 'drm state: could not mount debugfs' >>"$rep"
+fi
+
+report() { # report <tag>
+    {
+        echo "== nura-plasma-report ($1) $(date -u '+%F %T UTC')"
+        echo "backlight: $([ -n "$p" ] && cat "$p/brightness" 2>/dev/null || echo n/a)/$max (${p:-none})"
+        for f in status enabled dpms modes; do
+            echo "DSI-1 $f: $(cat "$d/$f" 2>/dev/null | tr '\n' ' ')"
+        done
+        [ -r /sys/kernel/debug/dri/0/summary ] &&
+            echo "drm summary:" && cat /sys/kernel/debug/dri/0/summary
+        if [ -r /sys/kernel/debug/dri/0/state ]; then
+            echo "drm state (planes, crtcs and framebuffers):"
+            cat /sys/kernel/debug/dri/0/state
+        else
+            echo "drm state: unavailable (debugfs not mounted or driver lacks state)"
+        fi
+        echo "procs: $(pgrep -a -f 'kwin_wayland|plasmashell' 2>/dev/null | tr '\n' ';')"
+        for f in /home/nura/*.csv /home/nura/.local/share/kwin/*.csv /tmp/*.csv; do
+            [ -f "$f" ] || continue
+            echo "perf $f:"; tail -3 "$f" | sed 's/^/  /'
+        done
+        echo "kwin/plasma tail:"
+        journalctl -b -u plasma-mobile.service -n 25 --no-pager 2>/dev/null |
+            sed 's/^/  /'
+        echo
+    } >>"$rep" 2>/dev/null
+}
+
+i=0
+while [ "$i" -lt 30 ]; do
+    cur=$([ -n "$p" ] && cat "$p/brightness" 2>/dev/null || echo -1)
+    if [ "$cur" = 0 ]; then
+        printf '%s\n' "$val" > "$p/brightness" 2>/dev/null &&
+            echo "nura-backlight: t=${i}s 0 -> $val/$max ($p)" > /dev/kmsg 2>/dev/null
+    fi
+    case $i in
+    5)  report "t=5s" ;;
+    8)
+        # KWin's first commit after the takeover can end as a "resume" without a
+        # real enable: the kernel reports crtc enable=1 but the panel stays
+        # dark. Force a full disable/enable cycle through the DPMS property.
+        if [ -w "$d/dpms" ]; then
+            before=$(cat "$d/dpms" 2>/dev/null)
+            printf 'Off' > "$d/dpms" 2>/dev/null || true
+            sleep 1
+            printf 'On' > "$d/dpms" 2>/dev/null || true
+            sleep 1
+            echo "nura-backlight: dpms cycle $before -> $(cat "$d/dpms" 2>/dev/null)" > /dev/kmsg 2>/dev/null
+        fi
+        ;;
+    10) /usr/bin/nura-shot-run 2>/dev/null || true ;;
+    12)
+        # nurafb paints fine at 60 Hz; KWin picks the 120 Hz mode and the panel
+        # goes black. Ask kscreen to switch DSI-1 to 60 Hz from inside the
+        # Plasma session (uid 10000, systemd user bus).
+        if [ -x /usr/bin/kscreen-doctor ]; then
+            kd() {
+                setpriv --reuid=10000 --regid=10000 --init-groups \
+                    env XDG_RUNTIME_DIR=/run/user/10000 \
+                        DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/10000/bus \
+                    /usr/bin/kscreen-doctor "$@" 2>&1
+            }
+            {
+                echo "-- kscreen -o (antes) --"
+                kd -o | head -15
+                echo "-- kscreen set 60Hz --"
+                kd output.DSI-1.mode.1080x2400@60 | head -5
+                echo "-- kscreen -o (despues) --"
+                kd -o | head -15
+            } >>"$rep" 2>&1
+        fi
+        ;;
+    15) /usr/bin/nura-bars-test 2>/dev/null || true ;;
+    20) report "t=20s" ;;
+    esac
+    i=$((i + 1))
+    sleep 1
+done
+exit 0

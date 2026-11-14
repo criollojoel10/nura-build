@@ -1,0 +1,9 @@
+#!/bin/sh
+# zram is built into this kernel and the rootfs carries no module tree, so
+# pmOS's `modprobe -q zram num_devices=1` fails under `set -e` and the whole
+# postmarketos-zram-swap.service dies with status=1.  The kernel already
+# creates /dev/zram0 at boot, so re-run the stock script without that line.
+set -e
+tmp=/run/nura-zramstart.sh
+sed 's/^modprobe -q zram num_devices=1$/:/' /usr/bin/zramstart > "$tmp"
+exec /bin/sh "$tmp"

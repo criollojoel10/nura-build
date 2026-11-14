@@ -1,0 +1,23 @@
+#!/bin/sh
+# Detach the panfrost GPU before Plasma starts.
+#
+# This kernel exposes /dev/dri/renderD128 (panfrost, mali-g68), but the Mesa in
+# this rootfs has no Mali-G68 model (checked: libgallium only lists up to G57 /
+# G610 / G76 and no library contains the "Mali-G68" string).  KWin therefore
+# lists that render node as llvmpipe, picks the udmabuf software device and
+# then dies with "Could not create udmabuf: Invalid argument", leaving a black
+# panel.
+#
+# With the GPU detached, the proven v20 path applies: llvmpipe on dumb buffers
+# (needs 0001-mtk-drm-gem-mmap-offset.patch, which this kernel has).
+drv=/sys/bus/platform/drivers/panfrost/13000000.mali
+if [ -e "$drv" ]; then
+    if echo 13000000.mali > /sys/bus/platform/drivers/panfrost/unbind 2>/dev/null; then
+        echo "nura-gpu-prep: panfrost unbound (Mesa has no G68 model)" > /dev/kmsg 2>/dev/null
+    else
+        echo "nura-gpu-prep: could not unbind panfrost" > /dev/kmsg 2>/dev/null
+    fi
+else
+    echo "nura-gpu-prep: no panfrost bound" > /dev/kmsg 2>/dev/null
+fi
+exit 0

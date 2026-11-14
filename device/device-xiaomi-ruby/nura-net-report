@@ -1,0 +1,69 @@
+#!/bin/sh
+# Dump network evidence to the persistent report so a WiFi test boot can be
+# diagnosed offline (SSH is useless while there is no link).
+#
+# Appends to /var/log/nura-plasma-report.txt, the same file nura-backlight and
+# nura-bars-test use: the journal rotates too fast to survive a test boot.
+set -u
+rep=/var/log/nura-plasma-report.txt
+
+net() { command -v "$1" >/dev/null 2>&1; }
+
+{
+    echo "-- net report $(date -u '+%F %T UTC') uptime $(cut -d' ' -f1 /proc/uptime)s --"
+
+    # Kernel side: connsys probe result and the wmtWifi character device.
+    echo "[kmsg conninfra/wifi]"
+    dmesg 2>/dev/null | grep -aiE 'conninfra|wmtWifi|mtk_wifi|wlan0|pmic node' \
+        | tail -25 | cut -c1-160
+
+    # Driver side: is there a wlan0 at all and what state does it report?
+    echo "[links]"
+    for d in /sys/class/net/*; do
+        [ -e "$d" ] || continue
+        printf '%s operstate=%s carrier=%s\n' "${d##*/}" \
+            "$(cat "$d/operstate" 2>/dev/null)" \
+            "$(cat "$d/carrier" 2>/dev/null)"
+    done
+    echo "[wlan0]"
+    for f in /sys/class/net/wlan0/address /sys/class/net/wlan0/mtu \
+             /sys/class/net/wlan0/device/driver; do
+        [ -e "$f" ] || continue
+        printf '%s=%s\n' "$f" "$(readlink -f "$f" 2>/dev/null || cat "$f" 2>/dev/null)"
+    done
+    echo "[wireless]"
+    grep -a . /proc/net/wireless 2>/dev/null | tail -3
+
+    net ip && { echo "[ip]"; ip -brief addr 2>&1; ip route 2>&1; }
+    net iw && { echo "[iw dev]"; iw dev 2>&1 | head -20; }
+
+    # Is anything listening on 22? sshd can run without a link.
+    echo "[ssh]"
+    net ss && ss -tlnp 2>/dev/null | grep -E ':22\b' || echo 'port 22: not listening'
+    [ -e /etc/ssh/ssh_host_ed25519_key ] && echo 'host key: present' \
+        || echo 'host key: MISSING'
+    # Listening is not the same as working: force a real TCP connection and
+    # key exchange over loopback, then refuse auth on purpose.  A clean
+    # "Permission denied (publickey,password)" means the daemon completed the
+    # handshake; "Connection refused"/"kex_exchange_identification" would mean
+    # it is broken.  This is the closest SSH check that needs no link.
+    echo "[ssh handshake loopback]"
+    if net ssh && net timeout; then
+        timeout 15 ssh -o BatchMode=yes -o PreferredAuthentications=none \
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=8 -p 22 127.0.0.1 true 2>&1 | tail -2
+    else
+        echo 'sin cliente ssh o timeout'
+    fi
+
+    # Service logs are the only place nura-wifi.sh reports its own failures.
+    if net journalctl; then
+        echo "[nura-wifi.service]"
+        journalctl -b -u nura-wifi.service --no-pager -n 25 2>/dev/null | cut -c1-160
+        echo "[NetworkManager]"
+        journalctl -b -u NetworkManager.service --no-pager -n 10 2>/dev/null | cut -c1-160
+        net nmcli && { echo "[nmcli]"; nmcli -t dev status 2>&1 | head -10; }
+    fi
+} >>"$rep" 2>&1
+
+exit 0

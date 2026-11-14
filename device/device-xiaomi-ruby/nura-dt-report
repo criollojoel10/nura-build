@@ -1,0 +1,33 @@
+#!/bin/sh
+# Capture the live device tree and display state for offline diagnosis.
+set -u
+umask 077
+out=/var/log/nura-dt-report
+mkdir -p "$out" || exit 1
+rm -f "$out/device-tree.tar" "$out/device-tree.tar.tmp"
+{
+    echo "boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
+    echo "uptime=$(cat /proc/uptime 2>/dev/null)"
+    for f in /sys/class/drm/card*-DSI-*/status /sys/class/drm/card*-DSI-*/enabled /sys/class/drm/card*-DSI-*/dpms /sys/class/drm/card*-DSI-*/modes /sys/class/leds/lcd-backlight/brightness; do
+        [ -r "$f" ] || continue
+        printf '%s: ' "$f"
+        tr '\n' ' ' < "$f"
+        echo
+    done
+    for f in /sys/firmware/devicetree/base/spi@*/m16-touch@*/compatible /sys/firmware/devicetree/base/spi@*/m16-touch@*/panel-id-gpios; do
+        [ -r "$f" ] || continue
+        echo "present: $f"
+    done
+} > "$out/status.txt"
+if [ -d /sys/firmware/devicetree/base ]; then
+    if tar -cf "$out/device-tree.tar.tmp" -C /sys/firmware/devicetree/base .; then
+        mv "$out/device-tree.tar.tmp" "$out/device-tree.tar"
+        echo 'device tree: captured' >> "$out/status.txt"
+    else
+        echo 'device tree: capture failed' >> "$out/status.txt"
+        exit 1
+    fi
+else
+    echo 'device tree: unavailable' >> "$out/status.txt"
+    exit 1
+fi

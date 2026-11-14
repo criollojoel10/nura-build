@@ -1,0 +1,48 @@
+#!/bin/sh
+# Panel health test: free the DRM card, paint SMPTE bars, give it back.
+#
+# nurafb falls back to colour bars when its font cannot be loaded
+# (tools/nurafb/nurafb.c: splash_fallback). Painting them *after* Plasma has
+# taken over tells us whether the panel/DSI still works at that point:
+#   bars visible -> panel is fine, the problem is what KWin scans out
+#   bars missing -> the handoff itself leaves the panel/DSI broken
+#
+# Everything is non-blocking: a plain "systemctl stop" waits for
+# TimeoutStopSec (90 s) and the 60 s guard reboots the phone first.
+set -u
+rep=/var/log/nura-plasma-report.txt
+bin=/usr/bin/nurafb
+
+kwin_alive() {
+    for d in /proc/[0-9]*; do
+        [ -r "$d/comm" ] || continue
+        [ "$(cat "$d/comm" 2>/dev/null)" = kwin_wayland ] && return 0
+    done
+    return 1
+}
+
+{
+    echo "-- bars test $(date -u '+%F %T UTC') --"
+} >>"$rep" 2>&1
+
+[ -x "$bin" ] || { echo "bars test: missing $bin" >>"$rep"; exit 0; }
+
+systemctl stop --no-block plasma-mobile.service 2>>"$rep" || true
+i=0
+while kwin_alive && [ "$i" -lt 20 ]; do
+    sleep 0.5
+    i=$((i + 1))
+done
+echo "bars test: kwin gone after $((i / 2)) s" >>"$rep" 2>&1
+
+rm -f /run/nurafb.stop
+NURA_SCALE=3 NURA_WATCHDOG_SEC=0 "$bin" /nonexistent-font.psf >>"$rep" 2>&1 &
+pid=$!
+sleep 6
+: > /run/nurafb.stop
+wait "$pid" 2>/dev/null || true
+rm -f /run/nurafb.stop
+
+echo "-- bars test done, restarting plasma --" >>"$rep" 2>&1
+systemctl start --no-block plasma-mobile.service 2>>"$rep" || true
+exit 0

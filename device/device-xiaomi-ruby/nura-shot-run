@@ -1,0 +1,27 @@
+#!/bin/sh
+# Run nura-shot as the Plasma user on the systemd user bus and keep its output.
+#
+# Everything goes to /var/log/nura-shot.log: /dev/kmsg is rotated away by the
+# MTK thermal spam, which is exactly how the first attempt disappeared.
+set -u
+log=/var/log/nura-shot.log
+rt=/run/user/10000
+{
+    echo "== $(date -u '+%F %T UTC') bus=$([ -S "$rt/bus" ] && echo yes || echo no)" \
+         "wayland=$(ls -d "$rt"/wayland-* 2>/dev/null | tr '\n' ' ')"
+    if [ ! -S "$rt/bus" ]; then
+        echo "no session bus"
+        exit 0
+    fi
+    setpriv --reuid=10000 --regid=10000 --init-groups \
+        env XDG_RUNTIME_DIR="$rt" DBUS_SESSION_BUS_ADDRESS="unix:path=$rt/bus" \
+        /usr/bin/python3 /usr/bin/nura-shot 2>&1
+    echo "rc=$?"
+    if [ -f /tmp/nura-shot.png ]; then
+        cp -f /tmp/nura-shot.png /var/log/nura-shot.png
+        chmod 0644 /var/log/nura-shot.png
+        echo "copied /var/log/nura-shot.png ($(wc -c </var/log/nura-shot.png) B)"
+    fi
+    [ -f /tmp/nura-shot.txt ] && cp -f /tmp/nura-shot.txt /var/log/nura-shot.txt
+} >>"$log" 2>&1
+exit 0

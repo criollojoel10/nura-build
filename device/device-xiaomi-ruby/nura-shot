@@ -1,0 +1,124 @@
+#!/usr/bin/python3
+"""Capture what KWin is compositing and leave a PNG plus a one-line summary.
+
+Run as uid 10000 with XDG_RUNTIME_DIR=/run/user/10000 and
+DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/10000/bus.  Uses the
+org.kde.KWin.ScreenShot2 API (the one Spectacle uses), so it shows exactly the
+frame KWin hands to the DRM backend: a black capture means KWin renders black,
+a colourful one means the scanout/backlight path is what is missing.
+
+Never raises: any failure is reported on stdout and the exit code stays 0.
+"""
+import os
+import struct
+import sys
+import time
+import zlib
+
+OUT = "/tmp/nura-shot.png"
+SUMMARY = "/tmp/nura-shot.txt"
+
+
+def write_png(path, w, h, rgb):
+    raw = bytearray()
+    stride = w * 3
+    for y in range(h):
+        raw.append(0)
+        raw.extend(rgb[y * stride:(y + 1) * stride])
+
+    def chunk(tag, data):
+        c = struct.pack(">I", len(data)) + tag + data
+        return c + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    png = b"\x89PNG\r\n\x1a\n"
+    png += chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+    png += chunk(b"IDAT", zlib.compress(bytes(raw), 6))
+    png += chunk(b"IEND", b"")
+    with open(path, "wb") as f:
+        f.write(png)
+
+
+def main():
+    try:
+        import gi
+        gi.require_version("Gio", "2.0")
+        gi.require_version("GLib", "2.0")
+        from gi.repository import Gio, GLib
+    except Exception as e:  # noqa: BLE001
+        print("no gi:", e)
+        return
+
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    tmp = "/tmp/nura-shot.raw"
+    fd = os.open(tmp, os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o600)
+    fdl = Gio.UnixFDList.new()
+    fdl.append(fd)
+    try:
+        res, _ = bus.call_with_unix_fd_list_sync(
+            "org.kde.KWin.ScreenShot2",
+            "/org/kde/KWin/ScreenShot2",
+            "org.kde.KWin.ScreenShot2",
+            "CaptureWorkspace",
+            GLib.Variant("(a{sv}h)", (
+                {"include-cursor": GLib.Variant("b", False)},
+                0,
+            )),
+            GLib.VariantType("(a{sv})"),
+            Gio.DBusCallFlags.NONE,
+            10000,
+            fdl,
+            None,
+        )
+    except Exception as e:  # noqa: BLE001
+        print("dbus call failed:", e)
+        os.close(fd)
+        return
+    os.close(fd)
+
+    data = res.unpack()[0]
+    kind = data.get("type")
+    if kind is None:
+        print("unexpected reply:", data)
+        return
+    kind = kind if isinstance(kind, str) else kind.print_(True)
+    blob = open(tmp, "rb").read()
+
+    if kind == "png":
+        open(OUT, "wb").write(blob)
+        text = f"nura-shot: png {len(blob)} B"
+    else:
+        w = int(data["width"])
+        h = int(data["height"])
+        stride = int(data["stride"])
+        fmt = int(data["format"])
+        # BGRA in little endian for QImage::Format_ARGB32(_Premultiplied).
+        rgb = bytearray(w * h * 3)
+        black = 0
+        total = 0
+        luma = 0
+        for y in range(h):
+            row = blob[y * stride:y * stride + w * 4]
+            o = y * w * 3
+            for x in range(0, w):
+                b = row[x * 4]
+                g = row[x * 4 + 1]
+                r = row[x * 4 + 2]
+                rgb[o + x * 3] = r
+                rgb[o + x * 3 + 1] = g
+                rgb[o + x * 3 + 2] = b
+                if r < 8 and g < 8 and b < 8:
+                    black += 1
+                luma += (r * 299 + g * 587 + b * 114) // 1000
+                total += 1
+        write_png(OUT, w, h, rgb)
+        text = (f"nura-shot: raw {w}x{h} stride={stride} fmt={fmt} "
+                f"bytes={len(blob)} mean_luma={luma // max(total, 1)} "
+                f"black={100 * black // max(total, 1)}%")
+
+    with open(SUMMARY, "w") as f:
+        f.write(text + " " + time.strftime("%F %T UTC", time.gmtime()) + "\n")
+    print(text)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,14 @@
+[Unit]
+Description=Nura MediaTek Wi-Fi radio bring-up
+Documentation=file:/usr/bin/nura-wifi
+After=local-fs.target
+# NetworkManager discovers wlan0 when it appears; do not delay graphical boot.
+ConditionPathExists=/lib/firmware/wlan_6877_axi.nvram
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/nura-wifi
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

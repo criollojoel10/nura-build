@@ -1,0 +1,16 @@
+[Unit]
+# Schedules the GPU probe 10 s into the boot.
+#
+# Why a timer and not WantedBy=multi-user.target: the last two boots showed
+# multi-user.target being reached at ~45 s, and the guard returns to Android at
+# ~60 s, so the probe barely ran. A timer is independent of target ordering and
+# nothing waits for it, so a hang inside Mesa cannot delay Plasma.
+Description=Schedule the Nura GPU/EGL probe
+
+[Timer]
+OnBootSec=10s
+AccuracySec=1s
+Unit=nura-gpu-probe.service
+
+[Install]
+WantedBy=timers.target

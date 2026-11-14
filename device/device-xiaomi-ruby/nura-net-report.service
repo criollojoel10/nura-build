@@ -1,0 +1,19 @@
+[Unit]
+# WiFi/SSH evidence collector, once per boot at +28 s: kmsg shows wlan0 up at
+# ~19 s of uptime, and the guard can return to Android at ~60 s, so +40 s was
+# cutting it too close (the last run wrote at 57 s).
+Description=Nura network evidence (wlan0, sshd, conninfra)
+After=network.target nura-wifi.service
+Wants=nura-wifi.service
+ConditionPathExists=/var/log
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 28
+ExecStart=/usr/bin/nura-net-report
+# Never fail the boot because of diagnostics.
+SuccessExitStatus=0 1
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

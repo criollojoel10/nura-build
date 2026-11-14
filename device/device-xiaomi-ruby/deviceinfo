@@ -1,0 +1,45 @@
+# deviceinfo for Xiaomi Redmi Note 12 Pro 5G (ruby)
+deviceinfo_format_version="0"
+deviceinfo_name="Xiaomi Redmi Note 12 Pro 5G"
+deviceinfo_manufacturer="Xiaomi"
+deviceinfo_codename="xiaomi-ruby"
+deviceinfo_year="2022"
+deviceinfo_dtb="mediatek/mt6877-xiaomi-ruby"
+deviceinfo_arch="aarch64"
+
+# Device related
+deviceinfo_chassis="handset"
+deviceinfo_drm="true"
+deviceinfo_external_storage="true"
+
+# Boot (measured on boot_b: header v2, page 2048, no init_boot, no dtb, no second)
+# boot_b header: kernel 0x40080000, ramdisk 0x51100000, tags 0x47c80000,
+# dtb_size 0, no second stage. Offsets below are relative to base 0x40078000
+# (same base as the reference MTK devices), so they reproduce boot_b exactly.
+deviceinfo_kernel_cmdline="bootopt=64S3,32N2,64N2"
+# El boot image no lo genera pmbootstrap: la imagen se arma con
+# tools/build-boot-image.py a partir del kernel del ROM (no se recompila).
+deviceinfo_generate_bootimg="false"
+deviceinfo_bootimg_custom_args="--header_version 2"
+deviceinfo_bootimg_qcdt="false"
+deviceinfo_bootimg_dtb_second="false"
+
+# Flashing related (see docs/PARTITIONS.md; Android boots from slot _b)
+deviceinfo_flash_method="fastboot"
+deviceinfo_flash_kernel_on_update="true"
+deviceinfo_flash_offset_base="0x40078000"
+deviceinfo_flash_offset_kernel="0x00008000"
+deviceinfo_flash_offset_ramdisk="0x11088000"
+deviceinfo_flash_offset_second="0x00000000"
+deviceinfo_flash_offset_tags="0x07c08000"
+deviceinfo_flash_offset_dtb="0x00000000"
+deviceinfo_flash_pagesize="2048"
+deviceinfo_flash_sparse="true"
+deviceinfo_flash_fastboot_partition_kernel="boot"
+deviceinfo_flash_fastboot_partition_vbmeta="vbmeta"
+
+# Modules
+deviceinfo_modules_initfs=""
+
+# Rootfs
+deviceinfo_rootfs_image_sector_size="4096"

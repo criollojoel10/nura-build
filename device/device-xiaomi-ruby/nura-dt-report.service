@@ -1,0 +1,10 @@
+[Unit]
+Description=Capture live device tree and display state for Nura diagnostics
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/nura-dt-report
+
+[Install]
+WantedBy=multi-user.target
