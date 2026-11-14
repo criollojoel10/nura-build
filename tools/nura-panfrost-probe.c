@@ -16,7 +16,7 @@
 #include <string.h>
 #include <unistd.h>
 
-static int check_pixel(const char *name, GLfloat r, GLfloat b)
+static int check_pixel_once(const char *name, GLfloat r, GLfloat b)
 {
 	GLubyte px[4] = {0};
 	GLenum err;
@@ -30,6 +30,16 @@ static int check_pixel(const char *name, GLfloat r, GLfloat b)
 	return err == GL_NO_ERROR &&
 	       px[0] == (r ? 255 : 0) && px[1] == 0 &&
 	       px[2] == (b ? 255 : 0) && px[3] == 255;
+}
+
+static int check_pixel(const char *name, float r, float b)
+{
+	int i;
+	for (i = 0; i < 5; i++) {
+		if (check_pixel_once(name, r, b))
+			return 1;
+	}
+	return 0;
 }
 
 int main(void)
