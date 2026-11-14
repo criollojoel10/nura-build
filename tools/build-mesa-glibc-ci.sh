@@ -9,7 +9,8 @@ apt-get install -y --no-install-recommends build-essential ca-certificates curl 
     libdrm-dev libwayland-dev wayland-protocols libx11-dev libxcb1-dev \
     libxshmfence-dev libxdamage-dev libxfixes-dev x11proto-dev \
     libelf-dev libdisplay-info-dev libzstd-dev zlib1g-dev libexpat1-dev \
-    libudev-dev llvm-dev libclang-dev glslang-tools python-is-python3
+    libudev-dev llvm-dev libclang-dev glslang-tools python-is-python3 \
+    python3-mako python3-yaml python3-packaging
 mkdir -p /work
 cd /work
 curl -fsSL --max-time 900 -o mesa.tar.xz https://archive.mesa3d.org/mesa-26.2.6.tar.xz
