@@ -11,6 +11,9 @@ apt-get install -y --no-install-recommends build-essential ca-certificates curl 
     libelf-dev libdisplay-info-dev libzstd-dev zlib1g-dev libexpat1-dev \
     libudev-dev llvm-dev libclang-dev glslang-tools python-is-python3 \
     python3-mako python3-yaml python3-packaging
+for p in libpolly-19-dev libpolly-dev; do
+    apt-get install -y --no-install-recommends "$p" >/dev/null 2>&1 && { echo "polly: $p"; break; }
+done
 for p in libllvmspirvlib-dev libllvmspirvlib-19-dev libllvmspirvlib-18-dev spirv-llvm-translator-dev; do
     if apt-get install -y --no-install-recommends "$p" >/dev/null 2>&1; then
         echo "instalado $p"; break
