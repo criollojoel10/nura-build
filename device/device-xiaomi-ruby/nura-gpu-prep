@@ -1,15 +1,26 @@
 #!/bin/sh
-# Detach the panfrost GPU before Plasma starts.
+# Decide what to do with the panfrost GPU before Plasma starts.
 #
-# This kernel exposes /dev/dri/renderD128 (panfrost, mali-g68), but the Mesa in
-# this rootfs has no Mali-G68 model (checked: libgallium only lists up to G57 /
-# G610 / G76 and no library contains the "Mali-G68" string).  KWin therefore
-# lists that render node as llvmpipe, picks the udmabuf software device and
-# then dies with "Could not create udmabuf: Invalid argument", leaving a black
-# panel.
+# History: this kernel exposes card1/renderD128 (panfrost, Mali-G68) but the
+# Mesa that came with the rootfs had no Mali-G68 model, so KWin listed the
+# render node as llvmpipe, picked the udmabuf software device and died with
+# "Could not create udmabuf: Invalid argument", leaving a black panel.  The fix
+# then was to unbind panfrost so llvmpipe used dumb buffers on card0.
 #
-# With the GPU detached, the proven v20 path applies: llvmpipe on dumb buffers
-# (needs 0001-mtk-drm-gem-mmap-offset.patch, which this kernel has).
+# That is no longer true when Mesa knows the chip (tools/patch-mesa-g68.py
+# backports the model row; libgallium then contains the string "Mali-G68").
+# Unbinding in that case is actively harmful: it removes /dev/dri/card1 *before*
+# KWin starts, KWin's KWIN_DRM_DEVICES cannot find it and falls back to
+# udmabuf/llvmpipe (measured: "Failed to open drm device : No such file").
+#
+# So the decision is made from the installed Mesa, not from a guess.
+lib=$(ls /usr/lib/libgallium-*.so 2>/dev/null | head -1)
+if [ -n "$lib" ] && command -v strings >/dev/null 2>&1 &&
+   strings "$lib" 2>/dev/null | grep -q 'Mali-G68'; then
+    echo "nura-gpu-prep: panfrost kept (Mesa has the Mali-G68 model)" > /dev/kmsg 2>/dev/null
+    exit 0
+fi
+
 drv=/sys/bus/platform/drivers/panfrost/13000000.mali
 if [ -e "$drv" ]; then
     if echo 13000000.mali > /sys/bus/platform/drivers/panfrost/unbind 2>/dev/null; then

@@ -56,6 +56,16 @@ net() { command -v "$1" >/dev/null 2>&1; }
         echo 'sin cliente ssh o timeout'
     fi
 
+    # KWin elige su backend al arrancar y lo dice una sola vez. Es la prueba de
+    # si Plasma compone con la GPU o con llvmpipe, que es lo que no se ve en
+    # /sys/class/drm.
+    echo "[kwin]"
+    if net journalctl; then
+        journalctl -b --no-pager -o cat 2>/dev/null \
+            | grep -aiE "render device|OpenGL compositing|llvmpipe|Panfrost|Failed to (create|initialize).*OpenGL|KWIN_COMPOSE" \
+            | tail -8 | cut -c1-160
+    fi
+
     # Service logs are the only place nura-wifi.sh reports its own failures.
     if net journalctl; then
         echo "[nura-wifi.service]"
