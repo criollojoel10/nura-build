@@ -38,6 +38,10 @@ int main(void)
 	const GLubyte *renderer;
 	int red, blue, result = 1;
 
+	/* Unbuffered: if a driver aborts the process we still see how far it got. */
+	setvbuf(stdout, NULL, _IONBF, 0);
+	setvbuf(stderr, NULL, _IONBF, 0);
+
 	if (display == EGL_NO_DISPLAY || !eglInitialize(display, &major, &minor)) {
 		fprintf(stderr, "eglInitialize failed: 0x%x\n", eglGetError());
 		return 1;
