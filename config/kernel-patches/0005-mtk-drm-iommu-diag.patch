@@ -1,0 +1,35 @@
+From Nura <nura@localhost>
+Subject: [PATCH] drm/mediatek: report IOMMU state of the display DMA path
+
+Print once whether drm->dev and the two OVL devices are IOMMU-mapped, and
+the dma address of the first dumb buffer. No behaviour change.
+
+---
+--- a/drivers/gpu/drm/mediatek/mtk_drm_drv.c
++++ b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
+@@ -3108,6 +3108,11 @@
+ 
+ 	private->dma_dev = &pdev->dev;
+ 
++	dev_info(drm->dev,
++		 "nura-dma: master iommu_mapped=%d dma_dev=%s iommu_mapped=%d\n",
++		 device_iommu_mapped(drm->dev), dev_name(private->dma_dev),
++		 device_iommu_mapped(private->dma_dev));
++
+ 	/*
+ 	 * PRIME buffers may consist of several physical pages, but OVL needs
+ 	 * one contiguous IOVA.  Allow the DMA layer to merge the full mapped
+--- a/drivers/gpu/drm/mediatek/mtk_drm_gem.c
++++ b/drivers/gpu/drm/mediatek/mtk_drm_gem.c
+@@ -334,6 +334,11 @@
+ 	DRM_DEBUG_DRIVER("cookie = %p dma_addr = %pad size = %zu\n",
+ 			 mtk_gem->cookie, &mtk_gem->dma_addr, mtk_gem->size);
+ 
++	dev_info(dev->dev,
++		 "nura-dma: gem size=%zu dma_addr=%pad iommu_mapped=%d\n",
++		 mtk_gem->size, &mtk_gem->dma_addr,
++		 device_iommu_mapped(priv->dma_dev));
++
+ 	return mtk_gem;
+ 
+ err_gem_free:

@@ -1,0 +1,404 @@
+name: kernel
+
+# Recompila el kernel 6.6.143 de ruby para Nura (Linux), partiendo del mismo
+# arbol y commit que el kernel Android en uso, con paridad de vermagic.
+#
+# Guia: el workflow ya probado en criollojoel10/ruby-droid-kernel-build
+# (KSU-Next + DroidSpaces), que reproduce exactamente
+# 6.6.143-android15-8-4k-Singularity-gbe1aa8ecec91 y arranca en el telefono.
+# De ahi se heredan los arreglos que ruby_defconfig necesita para compilar:
+#   - audiodsp roto en el arbol publicado (headers ausentes) -> se desactiva.
+#   - drivers/iommu/mtk_iommu_ext.h ausente -> se vendoriza de crdroid.
+#   - include paths de mismo directorio ausentes -> ccflags-y / bucle de -I.
+#   - scripts/setlocalversion anade -dirty en CI -> se neutraliza.
+# Encima se fusiona config/kernel-nura.fragment (VT/fbcon/pstore/panfrost).
+#
+# No flashea nada: produce Image, dtbs y modulos para probarlos en boot_a.
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_ref:
+        description: "Commit del kernel RubyxLabs (el del ROM para paridad de vermagic)"
+        type: string
+        default: "be1aa8ecec91d1793024db1d7a88e621b74e633e"
+      expected_release:
+        description: "Release exigido (vermagic); el build falla si no coincide"
+        type: string
+        default: "6.6.143-android15-8-4k-Singularity-gbe1aa8ecec91"
+      ksu:
+        description: "Anadir KernelSU-Next (no necesario para Linux/Nura)"
+        type: boolean
+        default: false
+      droidspaces_kabi:
+        description: "Parche SYSVIPC kABI de DroidSpaces (none = no aplicar)"
+        type: string
+        default: "none"
+      localversion:
+        description: "Sobrescribir CONFIG_LOCALVERSION (vacio = el del arbol)"
+        type: string
+        default: ""
+      jobs:
+        description: "Paralelismo"
+        type: string
+        default: "4"
+      nura_fragment:
+        description: "Fusionar config/kernel-nura.fragment (VT/fbcon; NO probado en arranque)"
+        type: boolean
+        default: false
+      base_config:
+        description: "Ruta en el repo de una config base (vacio = ruby_defconfig)"
+        type: string
+        default: ""
+      kupfer_fragment:
+        description: "Fusionar config/kernel-kupfer.fragment (VT sin fbcon + panfrost)"
+        type: boolean
+        default: false
+      build_modules:
+        description: "Compilar modulos .ko (Kupfer no los usa; ahorra tiempo)"
+        type: boolean
+        default: false
+      no_cfi:
+        description: "Desactivar CFI/shadow-call-stack (mas rapido; no lo usa Android)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      SRC: ${{ github.workspace }}/kernel
+    steps:
+      - name: Info del runner
+        run: |
+          set -Eeuo pipefail
+          df -h /
+          free -h
+          nproc
+
+      - name: Checkout del repo (fragmentos y config)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Clonar el kernel (commit del ROM)
+        uses: actions/checkout@v4
+        with:
+          repository: RubyxLabs/android_kernel_xiaomi_mt6877
+          ref: ${{ inputs.kernel_ref }}
+          path: kernel
+          fetch-depth: 1
+
+      - name: Dependencias del host
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            build-essential bc bison flex libssl-dev libelf-dev libncurses-dev \
+            cpio kmod rsync zstd xz-utils gzip perl pkg-config \
+            git curl ca-certificates dwarves ccache clang lld llvm
+          # LLVM=1 exige nombres sin version; Ubuntu 24.04 trae clang 18.1.3,
+          # que es justo el del ROM ("Ubuntu clang version 18.1.3 (1ubuntu1)").
+          for t in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump \
+                   llvm-readelf llvm-readobj llvm-strip llvm-size llvm-strings; do
+            command -v "$t" >/dev/null && continue
+            src=$(ls /usr/lib/llvm-*/bin/"$t" 2>/dev/null | head -n1 || true)
+            if [ -n "$src" ]; then sudo ln -sf "$src" /usr/bin/"$t"; fi
+          done
+          clang --version | head -n1
+          ld.lld --version | head -n1
+          git -C "$SRC" log --oneline -1
+
+      - name: Cache de ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-nura-${{ inputs.kernel_ref }}-${{ github.sha }}
+          restore-keys: |
+            ccache-nura-${{ inputs.kernel_ref }}-
+            ccache-nura-
+
+      - name: KernelSU-Next (opcional)
+        if: ${{ inputs.ksu }}
+        working-directory: kernel
+        run: |
+          set -Eeuo pipefail
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" -o /tmp/ksu-setup.sh
+          bash /tmp/ksu-setup.sh
+          test -d drivers/kernelsu
+          git status --short | head -5
+
+      - name: Parche SYSVIPC kABI de DroidSpaces (opcional)
+        if: ${{ inputs.droidspaces_kabi != 'none' }}
+        working-directory: kernel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VARIANT: ${{ inputs.droidspaces_kabi }}
+        run: |
+          set -Eeuo pipefail
+          API="repos/ravindu644/Droidspaces-OSS/contents/Documentation/resources/kernel-patches/GKI/below-kernel-6.12"
+          sha=$(gh api "$API" --jq ".[] | select(.name|test(\"fix_sysvipc_kabi_${VARIANT}\")) | .sha")
+          test -n "$sha" || { echo "::error::no existe el parche $VARIANT" >&2; exit 1; }
+          gh api "repos/ravindu644/Droidspaces-OSS/git/blobs/${sha}" --jq .content \
+            | base64 -d > /tmp/sysvipc.patch
+          patch -p1 -f < /tmp/sysvipc.patch
+          echo "kABI $VARIANT aplicado"
+
+      - name: Arreglos de compilacion del arbol publicado
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          cd "$SRC"
+          # audiodsp: al arbol publicado le faltan mtk-base-afe.h/audio_type.h/dvfs.h.
+          # Se desactiva por configuracion (no se parchea codigo).
+          F=sound/soc/mediatek/audio_dsp/v2/Makefile
+          grep -qF 'I$(srctree)/sound/soc/mediatek/audio_dsp/v2' "$F" || \
+            echo 'ccflags-y += -I$(srctree)/sound/soc/mediatek/audio_dsp/v2' >> "$F"
+          # drivers/iommu/mtk_iommu_ext.h no existe en este arbol.
+          H=drivers/iommu/mtk_iommu_ext.h
+          if [ ! -f "$H" ]; then
+            gh api "repos/crdroidandroid/android_kernel_xiaomi_mt6877/contents/$H?ref=16.0" \
+              --jq '.content' | base64 -d > "$H"
+            echo "vendorizado $H ($(wc -l < "$H") lineas)"
+          fi
+          grep -q 'MTK_IOMMU_PGTABLE_EXT' drivers/iommu/Kconfig || \
+            echo 'HEADER_DEFS=-DCONFIG_MTK_IOMMU_PGTABLE_EXT=32' >> "$GITHUB_ENV"
+
+      - name: Parches Nura del kernel
+        run: |
+          set -Eeuo pipefail
+          cd "$SRC"
+          # Parches propios, mantenidos en config/kernel-patches del repo.
+          # 0001: mtk-drm crea el offset mmap de los dumb buffers para que
+          # llvmpipe pueda mapear el dma-buf sin MAP_DUMB previo (pantalla negra).
+          for p in "$GITHUB_WORKSPACE"/config/kernel-patches/*.patch; do
+            [ -e "$p" ] || continue
+            echo "aplicando $(basename "$p")"
+            patch -p1 -f < "$p"
+          done
+          git status --short | head -5
+
+      - name: Configurar (ruby_defconfig + parche Nura)
+        env:
+          LOCALVERSION_INPUT: ${{ inputs.localversion }}
+          KSU: ${{ inputs.ksu }}
+          NURA_FRAGMENT: ${{ inputs.nura_fragment }}
+          KUPFER_FRAGMENT: ${{ inputs.kupfer_fragment }}
+          NO_CFI: ${{ inputs.no_cfi }}
+          BASE_CONFIG: ${{ inputs.base_config }}
+        run: |
+          set -Eeuo pipefail
+          cd "$SRC"
+          export ARCH=arm64 LLVM=1
+          if [ -n "$BASE_CONFIG" ]; then
+            # Config exacta de un kernel ya probado en el telefono.
+            cp "$GITHUB_WORKSPACE/$BASE_CONFIG" .config
+            echo "base: $BASE_CONFIG"
+          else
+            make ruby_defconfig
+          fi
+          ./scripts/config --file .config -d MTK_AUDIODSP_SUPPORT -d SND_SOC_MTK_AUDIO_DSP
+          grep -q '^CONFIG_WERROR' .config && ./scripts/config --file .config -d WERROR || true
+          if [ "$KSU" = "true" ]; then ./scripts/config --file .config -e KSU; else ./scripts/config --file .config -d KSU; fi
+          # Por defecto NO se fusiona el fragmento Nura: la config debe ser la
+          # misma que la del kernel que ya arranca (solo cambia el parche
+          # mtk-drm). El fragmento activa VT+fbcon, combinacion que cuelga el
+          # kernel en mtk_fbdev_probe (ver docs/STATUS.md, boot v4).
+          if [ "$NURA_FRAGMENT" = "true" ]; then
+            ./scripts/kconfig/merge_config.sh -m -O . .config "$GITHUB_WORKSPACE/config/kernel-nura.fragment"
+          fi
+          if [ "$KUPFER_FRAGMENT" = "true" ]; then
+            ./scripts/kconfig/merge_config.sh -m -O . .config "$GITHUB_WORKSPACE/config/kernel-kupfer.fragment"
+          fi
+          if [ -n "${LOCALVERSION_INPUT:-}" ]; then
+            ./scripts/config --file .config --set-str LOCALVERSION "$LOCALVERSION_INPUT"
+          fi
+          if [ "${NO_CFI:-false}" = "true" ]; then
+            # CFI/shadow-call-stack son hardening de Android GKI; con clang
+            # encarecen muchisimo la compilacion y este kernel no lo usa
+            # Android (slot B tiene el suyo). Desactivarlos no cambia el
+            # vermagic ni el release.
+            ./scripts/config --file .config -d CFI_CLANG -d SHADOW_CALL_STACK
+          fi
+          make olddefconfig
+          echo "=== consola"
+          grep -E "^CONFIG_(VT|VT_CONSOLE|FRAMEBUFFER_CONSOLE|DRM_FBDEV_EMULATION|DRM_SIMPLEDRM|DRM_PANFROST|PSTORE|PSTORE_RAM|USB_CONFIGFS|USB_G_SERIAL)=" .config || true
+          echo "=== identidad"
+          grep -E "^CONFIG_(LOCALVERSION|CC_VERSION_TEXT|LD_IS_LLD|LLD_VERSION|CLANG_VERSION)=" .config
+          if [ "${NO_CFI:-false}" = "true" ]; then
+            grep -q '^CONFIG_CFI_CLANG=y' .config && {
+              echo "::error::CFI_CLANG sigue activo con no_cfi=true" >&2; exit 1; }
+            echo "CFI/shadow-call-stack desactivados"
+          fi
+          if [ "$KUPFER_FRAGMENT" = "true" ]; then
+            # VT si, fbcon NO: fbcon cuelga en mtk_fbdev_probe (boot v4).
+            for o in VT VT_CONSOLE VT_HW_CONSOLE_BINDING DRM_FBDEV_EMULATION FHANDLE DRM_PANFROST; do
+              grep -q "^CONFIG_${o}=y" .config || { echo "::error::CONFIG_${o} no quedo activo" >&2; exit 1; }
+            done
+            if grep -q "^CONFIG_FRAMEBUFFER_CONSOLE=y" .config; then
+              echo "::error::FRAMEBUFFER_CONSOLE no debe estar activo (cuelga en mtk_fbdev_probe)" >&2
+              exit 1
+            fi
+          fi
+          if [ "$NURA_FRAGMENT" = "true" ]; then
+            for o in VT VT_CONSOLE FRAMEBUFFER_CONSOLE DRM_FBDEV_EMULATION; do
+              grep -q "^CONFIG_${o}=y" .config || { echo "::error::CONFIG_${o} no quedo activo" >&2; exit 1; }
+            done
+          elif [ "$KUPFER_FRAGMENT" != "true" ]; then
+            # El kernel probado arranca con VT/fbcon apagados y el panel lo
+            # pinta nurafb. Si esto cambia, el arranque deja de ser comparable.
+            for o in VT FRAMEBUFFER_CONSOLE; do
+              grep -q "^CONFIG_${o}=y" .config && { echo "::error::CONFIG_${o} activo sin fragmento" >&2; exit 1; }
+            done
+          fi
+          cp .config "$GITHUB_WORKSPACE/kernel.config"
+
+      - name: ccache stats
+        if: always()
+        run: |
+          ccache -s || true
+
+      - name: Pin del release (sin -dirty)
+        run: |
+          set -Eeuo pipefail
+          cd "$SRC"
+          # CI parchea archivos versionados -> setlocalversion anadiria -dirty y
+          # el vermagic dejaria de coincidir con el ROM.
+          sed -i "s/printf '%s' -dirty/:/" scripts/setlocalversion
+          if grep -q "printf '%s' -dirty" scripts/setlocalversion; then
+            echo "::error::no se pudo neutralizar -dirty" >&2
+            exit 1
+          fi
+          echo "HEAD: $(git rev-parse --short=12 HEAD)  localversion: $(cat localversion)"
+
+      - name: Compilar Image + dtbs + modulos (auto-arreglo de includes)
+        run: |
+          set -uo pipefail
+          cd "$SRC"
+          export ARCH=arm64 LLVM=1 SOURCE_DATE_EPOCH=1730476642 CCACHE_DIR="$HOME/.ccache"
+          ccache -M 3G || true
+          FLAGS="-Wno-error ${HEADER_DEFS:-}"
+          : > include-fixes.log
+          ok=0
+          for attempt in $(seq 1 25); do
+            echo "===== intento ${attempt}: KCFLAGS='${FLAGS}' ====="
+            targets=(Image dtbs)
+            [ "${BUILD_MODULES:-false}" = "true" ] && targets+=(modules)
+            if make -j"${INPUTS_JOBS:-4}" CC="ccache clang" KCFLAGS="$FLAGS" "${targets[@]}" \
+                 2>&1 | tee "build-attempt-${attempt}.log"; then
+              ok=1; echo "build ok en el intento ${attempt}"; break
+            fi
+            hdrs=$(grep -ohE "'[^']+' file not found" "build-attempt-${attempt}.log" \
+                    | sed -E "s/^'([^']+)' file not found$/\1/" | sort -u)
+            if [ -z "${hdrs:-}" ]; then
+              echo "::error::fallo sin diagnostico de header ausente"
+              tail -n 60 "build-attempt-${attempt}.log"
+              exit 1
+            fi
+            added=0
+            while IFS= read -r hdr; do
+              [ -z "$hdr" ] && continue
+              echo "header ausente: ${hdr}"
+              mapfile -t hits < <(find . -name "$hdr" -not -path './.git/*' 2>/dev/null | sort)
+              if [ "${#hits[@]}" -eq 0 ]; then
+                echo "::error::el header '${hdr}' no existe en el arbol" >&2; exit 1
+              fi
+              pick=""
+              for h in "${hits[@]}"; do
+                case "$h" in *mt6877*|*mt6853*) pick=$(dirname "$h"); break;; esac
+              done
+              [ -n "$pick" ] || pick=$(dirname "${hits[0]}")
+              case " $FLAGS " in
+                *" -I$PWD/$pick "*) echo "  ya presente: $pick"; continue;;
+              esac
+              FLAGS="$FLAGS -I$PWD/$pick"
+              added=$((added + 1))
+              echo "  + -I$pick" | tee -a include-fixes.log
+            done <<< "$hdrs"
+            if [ "$added" -eq 0 ]; then
+              echo "::error::sin includes nuevos, build atascado" >&2
+              tail -n 60 "build-attempt-${attempt}.log"; exit 1
+            fi
+          done
+          cp "build-attempt-${attempt}.log" build.log
+          [ "$ok" -eq 1 ] || { echo "::error::sin build verde tras ${attempt} intentos" >&2; exit 1; }
+          ls -lh arch/arm64/boot/Image
+        env:
+          INPUTS_JOBS: ${{ inputs.jobs }}
+          BUILD_MODULES: ${{ inputs.build_modules }}
+
+      - name: Verificar release y vermagic
+        env:
+          EXPECTED_RELEASE: ${{ inputs.expected_release }}
+        run: |
+          set -Eeuo pipefail
+          cd "$SRC"
+          IMAGE=arch/arm64/boot/Image
+          test -s "$IMAGE"
+          release=$(strings -a "$IMAGE" | grep -m1 -E '^6\.[0-9]+\.[0-9]+[^ ]* SMP' | sed 's/ SMP.*//')
+          echo "built   : $release"
+          echo "expected: $EXPECTED_RELEASE"
+          test "$release" = "$EXPECTED_RELEASE" || {
+            echo "::error::release distinto: los modulos del ROM no cargarian" >&2; exit 1; }
+          KO=$(find . -name '*.ko' | head -1)
+          if [ -n "$KO" ]; then
+            echo "vermagic ko: $(modinfo -F vermagic "$KO" | awk '{print $1}')"
+          fi
+          # Prueba de que el parche mtk-drm entro en el binario: la llamada a
+          # drm_gem_create_mmap_offset() desde mtk_drm_gem_dumb_create deja una
+          # relocacion con ese simbolo en el objeto.
+          OBJ=drivers/gpu/drm/mediatek/mtk_drm_gem.o
+          if [ -f "$OBJ" ]; then
+            n=$(llvm-objdump -dr "$OBJ" | grep -c 'R_AARCH64_CALL26.*drm_gem_create_mmap_offset')
+            echo "relocs drm_gem_create_mmap_offset en $OBJ: $n"
+            [ "$n" -ge 1 ] || { echo "::error::el parche mtk-drm no esta en el objeto" >&2; exit 1; }
+          else
+            echo "::error::falta $OBJ (DRM_MEDIATEK no compilado)" >&2; exit 1
+          fi
+
+      - name: Empaquetar
+        run: |
+          set -Eeuo pipefail
+          cd "$SRC"
+          mkdir -p "$GITHUB_WORKSPACE/out-art/dtb"
+          cp arch/arm64/boot/Image "$GITHUB_WORKSPACE/out-art/Image"
+          cp .config "$GITHUB_WORKSPACE/out-art/config"
+          cp build.log include-fixes.log "$GITHUB_WORKSPACE/out-art/"
+          DTS_DIR=arch/arm64/boot/dts
+          find "$DTS_DIR" \( -name 'mt6877*.dtb' -o -name '*ruby*.dtb' -o -name '*ruby*.dtbo' \) -type f > /tmp/dtbs.txt
+          cat /tmp/dtbs.txt
+          while read -r f; do
+            rel="${f#"$DTS_DIR/"}"
+            mkdir -p "$GITHUB_WORKSPACE/out-art/dtb/$(dirname "$rel")"
+            cp "$f" "$GITHUB_WORKSPACE/out-art/dtb/$rel"
+          done < /tmp/dtbs.txt
+          if [ "${{ inputs.build_modules }}" = "true" ]; then
+            make ARCH=arm64 LLVM=1 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/modstage" modules_install >/dev/null 2>&1 || true
+            if [ -d "$GITHUB_WORKSPACE/modstage" ]; then
+              tar -C "$GITHUB_WORKSPACE/modstage" -c . | zstd -T0 -10 -q -o "$GITHUB_WORKSPACE/out-art/modules.tar.zst"
+            fi
+          fi
+          cd "$GITHUB_WORKSPACE/out-art"
+          find . -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS
+          ls -l
+          cat SHA256SUMS
+
+      - name: Subir artefactos
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-ruby-nura
+          path: |
+            out-art/
+            kernel/build-attempt-*.log
+          retention-days: 14
+          if-no-files-found: warn

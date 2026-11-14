@@ -1,0 +1,57 @@
+diff -ruN treea/arch/arm64/boot/dts/mediatek/mt6877.dts treeb/arch/arm64/boot/dts/mediatek/mt6877.dts
+--- a/arch/arm64/boot/dts/mediatek/mt6877.dts	2026-11-09 15:33:44.769000026 -0500
++++ b/arch/arm64/boot/dts/mediatek/mt6877.dts	2026-11-09 15:33:44.801000026 -0500
+@@ -3311,7 +3311,7 @@
+ 	};
+ 
+ 	mali: mali@13000000 {
+-		compatible = "mediatek,mali", "arm,mali-valhall";
++		compatible = "mediatek,mali", "arm,mali-valhall-jm";
+ 		reg = <0 0x13000000 0 0x4000>;
+ 		interrupts =
+ 			<GIC_SPI 453 IRQ_TYPE_LEVEL_HIGH>,
+@@ -3320,11 +3320,11 @@
+ 			<GIC_SPI 456 IRQ_TYPE_LEVEL_HIGH>,
+ 			<GIC_SPI 457 IRQ_TYPE_LEVEL_HIGH>;
+ 		interrupt-names =
+-			"GPU",
+-			"MMU",
+-			"JOB",
+-			"EVENT",
+-			"PWR";
++			"gpu",
++			"mmu",
++			"job",
++			"event",
++			"power";
+ 	};
+ 
+ 	gpu_pll_ctrl_clk: syscon@13fa0000 {
+diff -ruN treea/drivers/gpu/drm/panfrost/panfrost_features.h treeb/drivers/gpu/drm/panfrost/panfrost_features.h
+--- a/drivers/gpu/drm/panfrost/panfrost_features.h	2026-11-09 15:33:44.697000026 -0500
++++ b/drivers/gpu/drm/panfrost/panfrost_features.h	2026-11-09 15:33:44.737000026 -0500
+@@ -118,6 +118,13 @@
+ 	BIT_ULL(HW_FEATURE_IDVS_GROUP_SIZE) | \
+ 	BIT_ULL(HW_FEATURE_CLEAN_ONLY_SAFE))
+ 
++/* Mali-G68 (Valhall JM, product id 0x9024 masked to 0x9004). Reuse the G57
++ * feature/issue sets: same major (9), minor (2) family; the vendor kbase
++ * r32p1 drives it with the same feature set.
++ */
++#define hw_features_g68 hw_features_g57
++#define hw_issues_g68 hw_issues_g57
++
+ static inline bool panfrost_has_hw_feature(struct panfrost_device *pfdev,
+ 					   enum panfrost_hw_feature feat)
+ {
+diff -ruN treea/drivers/gpu/drm/panfrost/panfrost_gpu.c treeb/drivers/gpu/drm/panfrost/panfrost_gpu.c
+--- a/drivers/gpu/drm/panfrost/panfrost_gpu.c	2026-11-09 15:33:44.697000026 -0500
++++ b/drivers/gpu/drm/panfrost/panfrost_gpu.c	2026-11-09 15:33:44.737000026 -0500
+@@ -216,6 +216,7 @@
+ 	 */
+ 	GPU_MODEL(g57, 0x9003,
+ 		GPU_REV(g57, 0, 0)),
++	GPU_MODEL(g68, 0x9004),
+ };
+ 
+ static void panfrost_gpu_init_features(struct panfrost_device *pfdev)

@@ -1,0 +1,138 @@
+diff -ruN a/arch/arm64/boot/dts/mediatek/mt6877.dts b/arch/arm64/boot/dts/mediatek/mt6877.dts
+--- a/arch/arm64/boot/dts/mediatek/mt6877.dts	2026-11-09 18:19:22.996000019 -0500
++++ b/arch/arm64/boot/dts/mediatek/mt6877.dts	2026-11-09 18:19:23.000000019 -0500
+@@ -3325,6 +3325,7 @@
+ 			"job",
+ 			"event",
+ 			"power";
++		clocks = <&clk26m>;
+ 	};
+ 
+ 	gpu_pll_ctrl_clk: syscon@13fa0000 {
+diff -ruN a/drivers/gpu/drm/panfrost/Makefile b/drivers/gpu/drm/panfrost/Makefile
+--- a/drivers/gpu/drm/panfrost/Makefile	2026-11-09 18:19:07.404000019 -0500
++++ b/drivers/gpu/drm/panfrost/Makefile	2026-11-09 18:19:07.560000019 -0500
+@@ -3,6 +3,7 @@
+ panfrost-y := \
+ 	panfrost_drv.o \
+ 	panfrost_device.o \
++	panfrost_mtk.o \
+ 	panfrost_devfreq.o \
+ 	panfrost_gem.o \
+ 	panfrost_gem_shrinker.o \
+diff -ruN a/drivers/gpu/drm/panfrost/panfrost_device.c b/drivers/gpu/drm/panfrost/panfrost_device.c
+--- a/drivers/gpu/drm/panfrost/panfrost_device.c	2026-11-09 18:19:07.356000019 -0500
++++ b/drivers/gpu/drm/panfrost/panfrost_device.c	2026-11-09 20:27:45.293762239 -0500
+@@ -201,6 +201,10 @@
+ {
+ 	int err;
+ 
++	/* gpufreq debe estar inicializado antes de tocar el MFG (ver panfrost_mtk.c) */
++	if (panfrost_mtk_needs_defer(pfdev))
++		return -EPROBE_DEFER;
++
+ 	mutex_init(&pfdev->sched_lock);
+ 	INIT_LIST_HEAD(&pfdev->scheduled_jobs);
+ 	INIT_LIST_HEAD(&pfdev->as_lru_list);
+@@ -243,6 +247,8 @@
+ 		goto out_pm_domain;
+ 	}
+ 
++	panfrost_mtk_power_on(pfdev);
++
+ 	err = panfrost_gpu_init(pfdev);
+ 	if (err)
+ 		goto out_pm_domain;
+@@ -285,6 +291,7 @@
+ 	panfrost_job_fini(pfdev);
+ 	panfrost_mmu_fini(pfdev);
+ 	panfrost_gpu_fini(pfdev);
++	panfrost_mtk_power_off(pfdev);
+ 	panfrost_pm_domain_fini(pfdev);
+ 	panfrost_reset_fini(pfdev);
+ 	panfrost_devfreq_fini(pfdev);
+diff -ruN a/drivers/gpu/drm/panfrost/panfrost_device.h b/drivers/gpu/drm/panfrost/panfrost_device.h
+--- a/drivers/gpu/drm/panfrost/panfrost_device.h	2026-11-09 18:19:07.368000019 -0500
++++ b/drivers/gpu/drm/panfrost/panfrost_device.h	2026-11-09 20:27:45.293762239 -0500
+@@ -262,4 +262,9 @@
+ 	queue_work(pfdev->reset.wq, &pfdev->reset.work);
+ }
+ 
++/* MTK: poder del MFG via gpufreq (ver panfrost_mtk.c) */
++void panfrost_mtk_power_on(struct panfrost_device *pfdev);
++bool panfrost_mtk_needs_defer(struct panfrost_device *pfdev);
++void panfrost_mtk_power_off(struct panfrost_device *pfdev);
++
+ #endif
+diff -ruN a/drivers/gpu/drm/panfrost/panfrost_mtk.c b/drivers/gpu/drm/panfrost/panfrost_mtk.c
+--- a/drivers/gpu/drm/panfrost/panfrost_mtk.c	1969-12-31 19:00:00.000000000 -0500
++++ b/drivers/gpu/drm/panfrost/panfrost_mtk.c	2026-11-09 20:36:16.731982529 -0500
+@@ -0,0 +1,68 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Poder del MFG de MediaTek para panfrost.
++ *
++ * El nodo mali del DTS vendor no describe clocks, reguladores ni power domains:
++ * el driver gpufreq es el dueno del MFG (MTCMOS MFG0..3, BG3D y el buck VGPU) y
++ * kbase lo encendia con mt_gpufreq_power_control(). panfrost solo necesita que
++ * el bloque este encendido antes de leer GPU_ID y programar los registros; la
++ * frecuencia se queda en el valor por defecto de gpufreq (sin DVFS por ahora).
++ *
++ * mt_gpufreq_power_control() es global en el mismo vmlinux (panfrost es
++ * built-in), asi que no hace falta EXPORT_SYMBOL.
++ */
++#include <linux/device.h>
++#include <linux/of.h>
++#include <linux/of_platform.h>
++#include <linux/platform_device.h>
++
++#include "panfrost_device.h"
++
++extern void mt_gpufreq_power_control(int power, int cg, int mtcmos, int buck);
++
++static bool panfrost_mtk_is_mtk(struct panfrost_device *pfdev)
++{
++	return pfdev->dev && pfdev->dev->of_node &&
++	       of_device_is_compatible(pfdev->dev->of_node, "mediatek,mali");
++}
++
++/*
++ * gpufreq publica su estado al final de __mt_gpufreq_pdrv_probe() (nodo
++ * "mediatek,gpufreq"). Hasta que ese probe no termina, g_infracfg_ao y el
++ * resto de bases no estan ioremappeadas y mt_gpufreq_power_control() revienta
++ * en readl (visto en hardware: panic en panfrost_device_init). Si el driver
++ * aun no esta bound, se devuelve -EPROBE_DEFER y el core reintenta el probe
++ * en cuanto gpufreq se enlaza.
++ */
++bool panfrost_mtk_needs_defer(struct panfrost_device *pfdev)
++{
++	struct device_node *np;
++	struct platform_device *pdev;
++	bool ready = false;
++
++	if (!panfrost_mtk_is_mtk(pfdev))
++		return false;
++
++	np = of_find_compatible_node(NULL, NULL, "mediatek,gpufreq");
++	if (!np)
++		return true;
++	pdev = of_find_device_by_node(np);
++	if (pdev) {
++		ready = device_is_bound(&pdev->dev);
++		put_device(&pdev->dev);
++	}
++	of_node_put(np);
++	return !ready;
++}
++
++void panfrost_mtk_power_on(struct panfrost_device *pfdev)
++{
++	if (panfrost_mtk_is_mtk(pfdev))
++		mt_gpufreq_power_control(1, 1, 1, 1);
++}
++
++void panfrost_mtk_power_off(struct panfrost_device *pfdev)
++{
++	if (panfrost_mtk_is_mtk(pfdev))
++		mt_gpufreq_power_control(0, 0, 0, 0);
++}

@@ -1,0 +1,53 @@
+# Fragmento para el kernel de Kupfer (6.6 vendor + panfrost).
+#
+# VT sin fbcon: /dev/tty0..ttyN y sesiones VT para logind/Plasma, pero la
+# consola de texto no enciende. CONFIG_FRAMEBUFFER_CONSOLE queda FUERA a
+# proposito: el boot v4 murio al enlazar fbcon dentro de
+# register_framebuffer()/mtk_fbdev_probe (docs/STATUS.md, docs/KERNEL.md).
+# VT_CONSOLE usa dummycon, que es suficiente para el TTY de logind.
+CONFIG_VT=y
+CONFIG_VT_CONSOLE=y
+CONFIG_VT_HW_CONSOLE_BINDING=y
+# olddefconfig lo enciende por defecto al activar VT; aqui se apaga a proposito.
+# CONFIG_FRAMEBUFFER_CONSOLE is not set
+CONFIG_DRM_FBDEV_EMULATION=y
+CONFIG_FHANDLE=y
+CONFIG_MAGIC_SYSRQ=y
+CONFIG_PSTORE=y
+CONFIG_PSTORE_RAM=y
+CONFIG_PSTORE_CONSOLE=y
+CONFIG_PSTORE_PMSG=y
+# systemd/logind y contenedores
+CONFIG_SYSVIPC=y
+CONFIG_SYSVIPC_SYSCTL=y
+CONFIG_POSIX_MQUEUE=y
+CONFIG_POSIX_MQUEUE_SYSCTL=y
+CONFIG_NAMESPACES=y
+CONFIG_UTS_NS=y
+CONFIG_IPC_NS=y
+CONFIG_PID_NS=y
+CONFIG_NET_NS=y
+CONFIG_USER_NS=y
+CONFIG_CGROUPS=y
+CONFIG_CGROUP_DEVICE=y
+CONFIG_CGROUP_PIDS=y
+CONFIG_CGROUP_SCHED=y
+CONFIG_FAIR_GROUP_SCHED=y
+CONFIG_CFS_BANDWIDTH=y
+CONFIG_TMPFS_XATTR=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_OVERLAY_FS=y
+CONFIG_SECCOMP=y
+CONFIG_SECCOMP_FILTER=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_VETH=y
+CONFIG_BRIDGE=y
+CONFIG_TUN=y
+CONFIG_MACVLAN=y
+CONFIG_DRM_PANFROST=y
+# PBM (power budget manager) del vendor: su kthread "pbm" llama a
+# cpuhvfs_get_cur_volt() y en este arranque peta con NULL (0x32c) antes de que
+# cpuhvfs este listo (panic a 1.9 s con panfrost ya inicializado). No hace falta
+# para Kupfer; se desactiva.
+# CONFIG_MTK_PBM is not set

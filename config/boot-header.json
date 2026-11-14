@@ -1,0 +1,28 @@
+{
+  "comment": "Measured from boot_b (Android boot image in use). boot_a uses the same addresses.",
+  "magic": "ANDROID!",
+  "header_version": 2,
+  "page_size": 2048,
+  "kernel_addr": "0x40080000",
+  "ramdisk_addr": "0x51100000",
+  "second_addr": "0x00000000",
+  "tags_addr": "0x47c80000",
+  "dtb_addr": "0x47c80000",
+  "dtb": {
+    "comment": "boot_b carries a real DTB in the v2 dtb field: 179139 B at 0x47c80000, padded to 0x2c000, followed by the AVB footer. boot_a must keep it: the kernel cannot boot without its own DTB.",
+    "size": 179139,
+    "addr": "0x47c80000"
+  },
+  "os_version": "570425770",
+  "name": "",
+  "cmdline": "bootopt=64S3,32N2,64N2 androidboot.tee_type=2 androidboot.init_fatal_reboot_target=recovery systemd.log_target=kmsg systemd.show_status=1",
+  "extra_cmdline": "",
+  "partition_size": 134217728,
+  "dtbo": {
+    "entries": 1,
+    "total_size": 76863,
+    "page_size": 2048
+  },
+  "vendor_boot": "present but all-zero on both slots",
+  "init_boot": "absent on this device"
+}
