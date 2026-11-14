@@ -1,0 +1,28 @@
+--- a/drivers/gpu/drm/panfrost/panfrost_gpu.c
++++ b/drivers/gpu/drm/panfrost/panfrost_gpu.c
+@@ -9,6 +9,7 @@
+ #include <linux/interrupt.h>
+ #include <linux/io.h>
+ #include <linux/iopoll.h>
++#include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
+ 
+@@ -306,6 +307,17 @@
+ 	bitmap_from_u64(pfdev->features.hw_features, hw_feat);
+ 	bitmap_from_u64(pfdev->features.hw_issues, hw_issues);
+ 
++	/* nura-diag: en la G68 de Ruby el job de KWin queda ACTIVE con la cadena
++	 * consumida (head==tail) y sin fault de MMU, con JS_CONFIG llevando
++	 * ENABLE_FLUSH_REDUCTION. Se desactiva esa feature solo en el camino
++	 * experimental (mediatek,mali + arm,mali-valhall-jm). */
++	if (of_device_is_compatible(pfdev->dev->of_node, "mediatek,mali") &&
++	    of_device_is_compatible(pfdev->dev->of_node, "arm,mali-valhall-jm")) {
++		clear_bit(HW_FEATURE_FLUSH_REDUCTION,
++			  pfdev->features.hw_features);
++		dev_info(pfdev->dev, "nura-diag: flush reduction desactivado (G68 experimental)\n");
++	}
++
+ 	dev_info(pfdev->dev, "mali-%s id 0x%x major 0x%x minor 0x%x status 0x%x",
+ 		 name, gpu_id, major, minor, status);
+ 	dev_info(pfdev->dev, "features: %64pb, issues: %64pb",
