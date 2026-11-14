@@ -40,6 +40,10 @@ cp -a output/src/gallium/targets/dri/*_dri.so /work/stage/opt/nura-mesa/lib/dri/
 cp -a output/src/egl/libEGL.so* /work/stage/opt/nura-mesa/lib/ 2>/dev/null || true
 cp -a output/src/mesa/glapi/es2api/libGLESv2.so* /work/stage/opt/nura-mesa/lib/ 2>/dev/null || true
 cp -a output/src/gbm/libgbm.so* /work/stage/opt/nura-mesa/lib/ 2>/dev/null || true
+mkdir -p /work/stage/opt/nura-mesa/lib/aarch64-linux-gnu/gbm /work/stage/opt/nura-mesa/lib/gbm
+cp -a output/src/gbm/backends/dri/dri_gbm.so /work/stage/opt/nura-mesa/lib/aarch64-linux-gnu/gbm/ 2>/dev/null || true
+cp -a output/src/gbm/backends/dri/dri_gbm.so /work/stage/opt/nura-mesa/lib/gbm/ 2>/dev/null || true
+ls /work/stage/opt/nura-mesa/lib/gbm/ 2>/dev/null
 for f in /usr/lib/aarch64-linux-gnu/libLLVM-19.so*; do
     [ -e "$f" ] && cp -a "$f" /work/stage/opt/nura-mesa/lib/ || true
 done
