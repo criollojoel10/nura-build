@@ -4,7 +4,7 @@
 set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y --no-install-recommends build-essential ca-certificates \
+apt-get install -y --no-install-recommends build-essential ca-certificates curl \
     python3 meson ninja-build pkg-config bison flex gettext zstd xz-utils \
     libdrm-dev libwayland-dev wayland-protocols libx11-dev libxcb1-dev \
     libxshmfence-dev libxdamage-dev libxfixes-dev x11proto-dev \
