@@ -11,7 +11,7 @@ apt-get install -y --no-install-recommends build-essential ca-certificates curl 
     libelf-dev libdisplay-info-dev libzstd-dev zlib1g-dev libexpat1-dev \
     libudev-dev llvm-dev libclang-dev glslang-tools python-is-python3 \
     python3-mako python3-yaml python3-packaging
-for p in libclang-common-19-dev libclang-common-dev clang-19 libclc-19 libclc-dev opencl-c-headers; do
+for p in clang clang-19 libclang-cpp19 libclang-cpp-dev libclang-common-19-dev libclang-common-dev libclc libclc-19 libclc-dev opencl-c-headers; do
     apt-get install -y --no-install-recommends "$p" >/dev/null 2>&1 || true
 done
 for p in libspirv-tools-dev spirv-tools-dev spirv-tools; do
