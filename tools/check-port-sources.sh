@@ -36,8 +36,22 @@ for f in "${SRCS[@]}"; do
     esac
     if [ ! -e "$f" ]; then
         echo "FALTA    $f (no está en el árbol de trabajo)"; fail=1
-    elif ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
-        echo "NO-GIT   $f (existe pero no está versionado: el runner no lo tendrá)"; fail=1
+    else
+        # Versionado se comprueba contra el repo del PROPIO script, no contra el
+        # directorio actual: en CI el port se copia dentro del clon de pmaports y
+        # `git ls-files` allí dice que no hay nada (falso negativo).
+        abs=$(cd "$(dirname "$f")" && pwd)/$(basename "$f")
+        case "$abs" in
+            "$HERE"/*)
+                rel=${abs#"$HERE"/}
+                if ! git -C "$HERE" cat-file -e "HEAD:$rel" 2>/dev/null &&
+                   ! git -C "$HERE" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
+                    echo "NO-GIT   $rel (existe pero no está versionado: el runner no lo tendrá)"
+                    fail=1
+                fi ;;
+            *)
+                echo "AVISO    $f fuera del repo del script; no compruebo git" ;;
+        esac
     fi
 done
 
