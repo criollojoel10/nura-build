@@ -18,7 +18,7 @@ export CFLAGS='-O2 -D_GNU_SOURCE'
 export CXXFLAGS='-O2 -D_GNU_SOURCE'
 ./autogen.sh --prefix=/opt/nura-hybris --enable-arch=arm64 \
     --with-android-headers=/work/android-headers --enable-mali-quirks \
-    --enable-wayland --with-default-egl-platform=null \
+    --disable-wayland --with-default-egl-platform=null \
     --with-default-hybris-ld-library-path=/vendor/lib64:/system/lib64:/odm/lib64
 make -j4
 make install DESTDIR=/work/stage
