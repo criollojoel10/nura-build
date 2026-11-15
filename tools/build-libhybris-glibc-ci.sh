@@ -59,6 +59,9 @@ echo "draw probe rc=$?"
 cc -O2 -Wall -Wextra /src/tools/nura-multias-probe.c \
     -o /work/stage/opt/nura-hybris/bin/nura-multias-probe -lEGL -lGLESv2
 echo "multias probe rc=$?"
+cc -O2 -Wall -Wextra /src/tools/nura-dmabuf-probe.c \
+    -o /work/stage/opt/nura-hybris/bin/nura-dmabuf-probe -lEGL -lGLESv2 -lgbm
+echo "dmabuf probe rc=$?"
 printf '%s\n' 'Experimental glibc build; not executable directly on musl.' \
     'libhybris 7079712a42ea2754adf747e70c6cc75764c8596e' \
     'android-headers 217a38e92cc64a96b4d1ac7469f30827d84485d3 (reports Android 11)' \
