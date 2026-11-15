@@ -50,6 +50,7 @@ typedef unsigned int EGLenum;
 #define GL_RENDERER 0x1F01
 #define GL_VERSION 0x1F02
 #define GL_LINEAR 0x2601
+#define GL_NEAREST 0x2600
 #define GL_TEXTURE_MIN_FILTER 0x2801
 #define GL_TEXTURE_MAG_FILTER 0x2800
 #define GL_CLAMP_TO_EDGE 0x812F
@@ -122,9 +123,7 @@ int main(void)
 	const EGLint surf_attrs[] = { EGL_WIDTH, 64, EGL_HEIGHT, 64, EGL_NONE };
 	const EGLint ctx_attrs[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
 	static const float verts[6] = { -1, -1, 3, -1, -1, 3 };
-	static const unsigned char texels[16] = {
-		255, 0, 0, 255, 255, 0, 0, 255,
-		255, 0, 0, 255, 255, 0, 0, 255 };
+	static const unsigned char texels[4] = { 255, 0, 0, 255 };
 	get_pd_fn gpd;
 	EGLDisplay dpy;
 	EGLSurface surf;
@@ -218,10 +217,10 @@ int main(void)
 	pGenTextures(1, &tex);
 	pActiveTexture(GL_TEXTURE0);
 	pBindTexture(GL_TEXTURE_2D, tex);
-	pTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 2, 2, 0, GL_RGBA,
+	pTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA,
 		    GL_UNSIGNED_BYTE, texels);
-	pTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	pTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	pTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	pTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	pTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	pTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	loc = pGetUniformLocation(prog, "tex");
