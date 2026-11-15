@@ -5,7 +5,7 @@
 # the Kupfer rootfs.
 set -eu
 # Docker no permite Landlock: pacman 7 no puede usar su sandbox
-grep -q "^DisableSandbox" /etc/pacman.conf || echo "DisableSandbox" >> /etc/pacman.conf
+grep -q "^DisableSandbox" /etc/pacman.conf || sed -i "/^\[options\]/a DisableSandbox" /etc/pacman.conf
 pacman -Syu --noconfirm --needed >/dev/null
 pacman -S --noconfirm --needed base-devel meson ninja python-mako python-yaml \
     python-packaging libdrm wayland wayland-protocols libx11 libxcb \
