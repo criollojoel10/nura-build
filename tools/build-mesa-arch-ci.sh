@@ -10,7 +10,7 @@ pacman -Syu --noconfirm --needed >/dev/null
 pacman -S --noconfirm --needed base-devel meson ninja python-mako python-yaml \
     python-packaging libdrm wayland wayland-protocols libx11 libxcb \
     libxshmfence libxdamage libxfixes xorgproto elfutils libdisplay-info \
-    zstd zlib expat llvm clang glslang libclc python >/dev/null
+    zstd zlib expat llvm clang glslang libclc spirv-llvm-translator python >/dev/null
 mkdir -p /work
 cd /work
 curl -fsSL --max-time 900 -o mesa.tar.gz \
