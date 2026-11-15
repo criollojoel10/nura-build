@@ -240,6 +240,10 @@ int main(void)
 				       GL_TEXTURE_2D, t2, 0);
 	}
 	printf("fbo=0x%x\n", pCheckFramebufferStatus(GL_FRAMEBUFFER));
+	/* La textura destino se enlazo en la unidad 0: devolver el sampler. */
+	pActiveTexture(GL_TEXTURE0);
+	pBindTexture(GL_TEXTURE_2D, tex);
+	pUniform1i(loc, 0);
 	pViewport(0, 0, 64, 64);
 
 	for (i = 0; i < 5; i++) {
