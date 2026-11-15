@@ -32,6 +32,7 @@ typedef unsigned int EGLenum;
 #define EGL_CONTEXT_CLIENT_VERSION 0x3098
 #define EGL_OPENGL_ES_API 0x30A0
 #define EGL_PLATFORM_GBM_KHR 0x31D7
+#define EGL_PLATFORM_SURFACELESS_MESA 0x31DD
 #define EGL_LINUX_DMA_BUF_EXT 0x3270
 #define EGL_LINUX_DRM_FOURCC_EXT 0x3271
 #define EGL_DMA_BUF_PLANE0_FD_EXT 0x3272
@@ -138,7 +139,7 @@ int main(void)
 	       gbm_bo_get_stride(bo), gbm_bo_get_modifier(bo));
 
 	gpd = (get_pd_fn)eglGetProcAddress("eglGetPlatformDisplayEXT");
-	dpy = gpd ? gpd(EGL_PLATFORM_GBM_KHR, gbm, NULL) : eglGetDisplay(gbm);
+	dpy = gpd ? gpd(EGL_PLATFORM_SURFACELESS_MESA, NULL, NULL) : eglGetDisplay(NULL);
 	if (dpy == EGL_NO_DISPLAY || !eglInitialize(dpy, &maj, &min)) {
 		printf("eglInitialize fallo\n"); return 1;
 	}
