@@ -4,6 +4,8 @@
 # LLVM 19), and the resulting packages are glibc/Arch, i.e. ABI-compatible with
 # the Kupfer rootfs.
 set -eu
+# Docker no permite Landlock: pacman 7 no puede usar su sandbox
+grep -q "^DisableSandbox" /etc/pacman.conf || echo "DisableSandbox" >> /etc/pacman.conf
 pacman -Syu --noconfirm --needed >/dev/null
 pacman -S --noconfirm --needed base-devel meson ninja python-mako python-yaml \
     python-packaging libdrm wayland wayland-protocols libx11 libxcb \
