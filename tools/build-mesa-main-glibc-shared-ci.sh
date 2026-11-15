@@ -18,6 +18,17 @@ for p in clang clang-19 libclang-cpp19 libclang-cpp-dev libclang-common-19-dev \
          libpolly-19-dev libpolly-dev; do
     apt-get install -y --no-install-recommends "$p" >/dev/null 2>&1 || true
 done
+# LLVM 22: el build con LLVM 19 producia sampler negro (ver docs)
+for p in llvm-22-dev libclang-22-dev clang-22 libclang-cpp22 libpolly-22-dev; do
+    apt-get install -y --no-install-recommends "$p" >/dev/null 2>&1 || true
+done
+if [ -x /usr/bin/llvm-config-22 ]; then
+    ln -sf /usr/bin/llvm-config-22 /usr/local/bin/llvm-config
+    for b in clang clang++ clang-cpp; do
+        [ -x "/usr/bin/$b-22" ] && ln -sf "/usr/bin/$b-22" "/usr/local/bin/$b"
+    done
+    echo "llvm-config -> $(llvm-config --version)"
+fi
 mkdir -p /work
 cd /work
 curl -fsSL --max-time 900 -o mesa.tar.gz \
