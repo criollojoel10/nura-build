@@ -65,6 +65,9 @@ echo "dmabuf probe rc=$?"
 cc -O2 -Wall -Wextra /src/tools/nura-tex-probe.c \
     -o /work/stage/opt/nura-hybris/bin/nura-tex-probe -lEGL -lGLESv2
 echo "tex probe rc=$?"
+cc -O2 -Wall -Wextra /src/tools/nura-threads-probe.c \
+    -o /work/stage/opt/nura-hybris/bin/nura-threads-probe -pthread -lEGL -lGLESv2
+echo "threads probe rc=$?"
 printf '%s\n' 'Experimental glibc build; not executable directly on musl.' \
     'libhybris 7079712a42ea2754adf747e70c6cc75764c8596e' \
     'android-headers 217a38e92cc64a96b4d1ac7469f30827d84485d3 (reports Android 11)' \
